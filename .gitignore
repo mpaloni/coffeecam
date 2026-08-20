@@ -1,7 +1,8 @@
 .venv/
 runs/
 crops/
-dataset/images/
+dataset/images/*
+!dataset/images/kahvi.png
 dataset/previews/
 __pycache__/
 *.pyc
