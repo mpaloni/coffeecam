@@ -25,7 +25,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("crops"))
     args = parser.parse_args()
 
-    from PIL import Image
+    from PIL import Image, ImageDraw
     from ultralytics import YOLO  # lazy import: keeps --help usable without the dep installed
 
     weights = args.weights or find_latest_weights()
@@ -42,9 +42,17 @@ def main() -> None:
     print(f"coffee_pot detected: bbox=({x1}, {y1}, {x2}, {y2}) conf={confidence:.3f}")
 
     args.out.mkdir(parents=True, exist_ok=True)
+    image = Image.open(args.image)
+
     crop_path = args.out / f"{args.image.stem}_crop.png"
-    Image.open(args.image).crop((x1, y1, x2, y2)).save(crop_path)
+    image.crop((x1, y1, x2, y2)).save(crop_path)
     print(f"Saved crop: {crop_path}")
+
+    bounded = image.convert("RGB").copy()
+    ImageDraw.Draw(bounded).rectangle((x1, y1, x2, y2), outline="red", width=4)
+    bounded_path = args.out / f"{args.image.stem}_bounded.png"
+    bounded.save(bounded_path)
+    print(f"Saved bounded image: {bounded_path}")
 
 
 if __name__ == "__main__":
