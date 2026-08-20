@@ -4,8 +4,6 @@ YOLOv8-based detector that finds the coffee pot in a camera frame and crops it o
 
 Detection only, for now. A second model/heuristic to classify how full the pot is comes later, once this pipeline is validated and more sample frames (across fill levels) are collected. Pulling frames live from the camera is also a follow-up — today's dataset seed is a single screenshot (`dataset/images/kahvi.png`).
 
-**Camera framing note:** in `kahvi.png` the coffee maker sits off to the right side of the frame rather than centered. When the live-capture follow-up sets up the camera feed, aim/crop it so the pot is roughly centered both horizontally and vertically — better and more consistent framing for both detection and (later) fullness classification.
-
 ## Setup
 
 ```bash
