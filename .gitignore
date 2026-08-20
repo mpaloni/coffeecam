@@ -1,0 +1,10 @@
+.venv/
+runs/
+crops/
+dataset/images/
+dataset/previews/
+__pycache__/
+*.pyc
+*.pt
+*.cache
+.pytest_cache/

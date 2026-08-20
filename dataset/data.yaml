@@ -1,0 +1,11 @@
+# Ultralytics dataset config. `path` is resolved relative to the CWD the
+# training/detection commands are run from (services/coffeecam), NOT relative
+# to this file's own directory — so it must say "dataset", not ".".
+# `train`/`val` resolve to dataset/images; ultralytics infers labels by
+# swapping images -> labels.
+path: dataset
+train: images
+val: images
+
+names:
+  0: coffee_pot
