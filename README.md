@@ -31,6 +31,12 @@ Check `dataset/previews/<name>_preview.png` to confirm the box looks right.
 
 Per shift it writes the shifted raw image to `dataset/images/<stem>_shift_x<dx>_y<dy>.png`, the updated YOLO label to `dataset/labels/…`, a boxed preview to `dataset/previews/…`, and appends the shift (dx/dy/fill + old & new bbox) to `dataset/augmentations.json`. That manifest is the record of every augmentation; `--replay` regenerates all of them from it. Shifted images/labels live alongside the originals so `train` picks them up automatically.
 
+Stitch every shift preview into one animated GIF (box sweeps around the frame, each frame stamped with its dx/dy):
+
+```bash
+.venv/bin/python -m coffeecam.preview_anim   # -> dataset/shift_previews.gif
+```
+
 **2. Train:**
 
 ```bash
