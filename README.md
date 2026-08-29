@@ -23,6 +23,20 @@ python3 -m venv .venv
 
 Check `dataset/previews/<name>_preview.png` to confirm the box looks right.
 
+**1b. Grow the dataset by shifting a labeled image** (cheap translation augmentation — `dx > 0` moves content right, `dy > 0` down):
+
+```bash
+.venv/bin/python -m coffeecam.augment_shift dataset/images/kahvi.png --dx 40 --dy 25 [--fill edge|reflect|wrap|black]
+```
+
+Per shift it writes the shifted raw image to `dataset/images/<stem>_shift_x<dx>_y<dy>.png`, the updated YOLO label to `dataset/labels/…`, a boxed preview to `dataset/previews/…`, and appends the shift (dx/dy/fill + old & new bbox) to `dataset/augmentations.json`. That manifest is the record of every augmentation; `--replay` regenerates all of them from it. Shifted images/labels live alongside the originals so `train` picks them up automatically.
+
+Stitch every shift preview into one animated GIF (box sweeps around the frame, each frame stamped with its dx/dy):
+
+```bash
+.venv/bin/python -m coffeecam.preview_anim   # -> dataset/shift_previews.gif
+```
+
 **2. Train:**
 
 ```bash
@@ -45,4 +59,4 @@ Prints the detected bbox/confidence and saves the cropped pot region to `crops/`
 .venv/bin/pytest tests/
 ```
 
-Covers bbox math and label I/O only — no network/GPU required. Training and detection are exercised manually (see Usage above) since they need `ultralytics` plus downloaded weights.
+Covers bbox math, label I/O, and shift augmentation only — no network/GPU required. Training and detection are exercised manually (see Usage above) since they need `ultralytics` plus downloaded weights.

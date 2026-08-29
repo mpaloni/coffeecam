@@ -1,0 +1,779 @@
+[
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -140,
+    "dy": -100,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      50,
+      90,
+      155,
+      205
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.200195,
+      0.323465,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-140_y-100.png",
+    "label": "dataset/labels/kahvi_shift_x-140_y-100.txt",
+    "preview": "dataset/previews/kahvi_shift_x-140_y-100_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -150,
+    "dy": 30,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      40,
+      220,
+      145,
+      335
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.180664,
+      0.608553,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-150_y30.png",
+    "label": "dataset/labels/kahvi_shift_x-150_y30.txt",
+    "preview": "dataset/previews/kahvi_shift_x-150_y30_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -190,
+    "dy": 70,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      0.0,
+      260,
+      105,
+      375
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.102539,
+      0.696272,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-190_y70.png",
+    "label": "dataset/labels/kahvi_shift_x-190_y70.txt",
+    "preview": "dataset/previews/kahvi_shift_x-190_y70_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -20,
+    "dy": 45,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      170,
+      235,
+      275,
+      350
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.43457,
+      0.641447,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-20_y45.png",
+    "label": "dataset/labels/kahvi_shift_x-20_y45.txt",
+    "preview": "dataset/previews/kahvi_shift_x-20_y45_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -210,
+    "dy": -120,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      0.0,
+      70,
+      85,
+      185
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.083008,
+      0.279605,
+      0.166016,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-210_y-120.png",
+    "label": "dataset/labels/kahvi_shift_x-210_y-120.txt",
+    "preview": "dataset/previews/kahvi_shift_x-210_y-120_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -35,
+    "dy": 20,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      155,
+      210,
+      260,
+      325
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.405273,
+      0.586623,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-35_y20.png",
+    "label": "dataset/labels/kahvi_shift_x-35_y20.txt",
+    "preview": "dataset/previews/kahvi_shift_x-35_y20_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -45,
+    "dy": -25,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      145,
+      165,
+      250,
+      280
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.385742,
+      0.487939,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-45_y-25.png",
+    "label": "dataset/labels/kahvi_shift_x-45_y-25.txt",
+    "preview": "dataset/previews/kahvi_shift_x-45_y-25_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -55,
+    "dy": 40,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      135,
+      230,
+      240,
+      345
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.366211,
+      0.630482,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-55_y40.png",
+    "label": "dataset/labels/kahvi_shift_x-55_y40.txt",
+    "preview": "dataset/previews/kahvi_shift_x-55_y40_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -70,
+    "dy": -50,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      120,
+      140,
+      225,
+      255
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.336914,
+      0.433114,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-70_y-50.png",
+    "label": "dataset/labels/kahvi_shift_x-70_y-50.txt",
+    "preview": "dataset/previews/kahvi_shift_x-70_y-50_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 0,
+    "dy": -140,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      190,
+      50,
+      295,
+      165
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.473633,
+      0.235746,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x0_y-140.png",
+    "label": "dataset/labels/kahvi_shift_x0_y-140.txt",
+    "preview": "dataset/previews/kahvi_shift_x0_y-140_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 0,
+    "dy": 190,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      190,
+      380,
+      295,
+      456
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.473633,
+      0.916667,
+      0.205078,
+      0.166667
+    ],
+    "image": "dataset/images/kahvi_shift_x0_y190.png",
+    "label": "dataset/labels/kahvi_shift_x0_y190.txt",
+    "preview": "dataset/previews/kahvi_shift_x0_y190_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 120,
+    "dy": 100,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      310,
+      290,
+      415,
+      405
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.708008,
+      0.762061,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x120_y100.png",
+    "label": "dataset/labels/kahvi_shift_x120_y100.txt",
+    "preview": "dataset/previews/kahvi_shift_x120_y100_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 130,
+    "dy": 0,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      320,
+      190,
+      425,
+      305
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.727539,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x130_y0.png",
+    "label": "dataset/labels/kahvi_shift_x130_y0.txt",
+    "preview": "dataset/previews/kahvi_shift_x130_y0_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 170,
+    "dy": -80,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      360,
+      110,
+      465,
+      225
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.805664,
+      0.367325,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x170_y-80.png",
+    "label": "dataset/labels/kahvi_shift_x170_y-80.txt",
+    "preview": "dataset/previews/kahvi_shift_x170_y-80_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 200,
+    "dy": 130,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      390,
+      320,
+      495,
+      435
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.864258,
+      0.827851,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x200_y130.png",
+    "label": "dataset/labels/kahvi_shift_x200_y130.txt",
+    "preview": "dataset/previews/kahvi_shift_x200_y130_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 25,
+    "dy": -35,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      215,
+      155,
+      320,
+      270
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.522461,
+      0.466009,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x25_y-35.png",
+    "label": "dataset/labels/kahvi_shift_x25_y-35.txt",
+    "preview": "dataset/previews/kahvi_shift_x25_y-35_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 35,
+    "dy": -50,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      225,
+      140,
+      330,
+      255
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.541992,
+      0.433114,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x35_y-50.png",
+    "label": "dataset/labels/kahvi_shift_x35_y-50.txt",
+    "preview": "dataset/previews/kahvi_shift_x35_y-50_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 40,
+    "dy": 25,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      230,
+      215,
+      335,
+      330
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.551758,
+      0.597588,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x40_y25.png",
+    "label": "dataset/labels/kahvi_shift_x40_y25.txt",
+    "preview": "dataset/previews/kahvi_shift_x40_y25_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 55,
+    "dy": 60,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      245,
+      250,
+      350,
+      365
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.581055,
+      0.674342,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x55_y60.png",
+    "label": "dataset/labels/kahvi_shift_x55_y60.txt",
+    "preview": "dataset/previews/kahvi_shift_x55_y60_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 60,
+    "dy": 5,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      250,
+      195,
+      355,
+      310
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.59082,
+      0.553728,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x60_y5.png",
+    "label": "dataset/labels/kahvi_shift_x60_y5.txt",
+    "preview": "dataset/previews/kahvi_shift_x60_y5_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 80,
+    "dy": -25,
+    "fill": "black",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      270,
+      165,
+      375,
+      280
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.629883,
+      0.487939,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x80_y-25.png",
+    "label": "dataset/labels/kahvi_shift_x80_y-25.txt",
+    "preview": "dataset/previews/kahvi_shift_x80_y-25_preview.png"
+  }
+]
