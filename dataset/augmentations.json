@@ -1,0 +1,224 @@
+[
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -20,
+    "dy": 45,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      170,
+      235,
+      275,
+      350
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.43457,
+      0.641447,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-20_y45.png",
+    "label": "dataset/labels/kahvi_shift_x-20_y45.txt",
+    "preview": "dataset/previews/kahvi_shift_x-20_y45_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -35,
+    "dy": 20,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      155,
+      210,
+      260,
+      325
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.405273,
+      0.586623,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-35_y20.png",
+    "label": "dataset/labels/kahvi_shift_x-35_y20.txt",
+    "preview": "dataset/previews/kahvi_shift_x-35_y20_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": -45,
+    "dy": -25,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      145,
+      165,
+      250,
+      280
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.385742,
+      0.487939,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x-45_y-25.png",
+    "label": "dataset/labels/kahvi_shift_x-45_y-25.txt",
+    "preview": "dataset/previews/kahvi_shift_x-45_y-25_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 25,
+    "dy": -35,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      215,
+      155,
+      320,
+      270
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.522461,
+      0.466009,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x25_y-35.png",
+    "label": "dataset/labels/kahvi_shift_x25_y-35.txt",
+    "preview": "dataset/previews/kahvi_shift_x25_y-35_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 40,
+    "dy": 25,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      230,
+      215,
+      335,
+      330
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.551758,
+      0.597588,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x40_y25.png",
+    "label": "dataset/labels/kahvi_shift_x40_y25.txt",
+    "preview": "dataset/previews/kahvi_shift_x40_y25_preview.png"
+  },
+  {
+    "source": "dataset/images/kahvi.png",
+    "source_label": "dataset/labels/kahvi.txt",
+    "dx": 60,
+    "dy": 5,
+    "fill": "edge",
+    "img_w": 512,
+    "img_h": 456,
+    "class_id": 0,
+    "src_bbox_px": [
+      190,
+      190,
+      295,
+      305
+    ],
+    "new_bbox_px": [
+      250,
+      195,
+      355,
+      310
+    ],
+    "src_bbox_yolo": [
+      0.473633,
+      0.542763,
+      0.205078,
+      0.252193
+    ],
+    "new_bbox_yolo": [
+      0.59082,
+      0.553728,
+      0.205078,
+      0.252193
+    ],
+    "image": "dataset/images/kahvi_shift_x60_y5.png",
+    "label": "dataset/labels/kahvi_shift_x60_y5.txt",
+    "preview": "dataset/previews/kahvi_shift_x60_y5_preview.png"
+  }
+]

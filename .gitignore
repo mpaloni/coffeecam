@@ -3,7 +3,9 @@ runs/
 crops/
 dataset/images/*
 !dataset/images/kahvi.png
-dataset/previews/
+!dataset/images/*_shift_x*_y*.png
+dataset/previews/*
+!dataset/previews/*_shift_x*_y*_preview.png
 __pycache__/
 *.pyc
 *.pt
