@@ -1,6 +1,7 @@
 .venv/
 runs/
 crops/
+captures/
 dataset/images/*
 !dataset/images/kahvi.png
 !dataset/images/*_shift_x*_y*.png
