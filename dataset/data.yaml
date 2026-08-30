@@ -1,11 +1,15 @@
 # Ultralytics dataset config. `path` is resolved relative to the CWD the
 # training/detection commands are run from (services/coffeecam), NOT relative
 # to this file's own directory — so it must say "dataset", not ".".
-# `train`/`val` resolve to dataset/images; ultralytics infers labels by
-# swapping images -> labels.
+# train/val are image-list files (one path per line, relative to `path`);
+# ultralytics infers each label by swapping images -> labels in the path.
+# The split holds a handful of shift-augmented frames out of training so
+# val mAP is a real signal rather than train-set memorization. Regenerate
+# the lists with scripts if the dataset grows; keep the single real frame
+# (kahvi.png) in train.
 path: dataset
-train: images
-val: images
+train: train.txt
+val: val.txt
 
 names:
   0: coffee_pot

@@ -1,0 +1,5 @@
+./images/kahvi_shift_x40_y25.png
+./images/kahvi_shift_x-45_y-25.png
+./images/kahvi_shift_x120_y100.png
+./images/kahvi_shift_x-190_y70.png
+./images/kahvi_shift_x0_y-140.png

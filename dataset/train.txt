@@ -1,0 +1,17 @@
+./images/kahvi.png
+./images/kahvi_shift_x-140_y-100.png
+./images/kahvi_shift_x-150_y30.png
+./images/kahvi_shift_x-20_y45.png
+./images/kahvi_shift_x-210_y-120.png
+./images/kahvi_shift_x-35_y20.png
+./images/kahvi_shift_x-55_y40.png
+./images/kahvi_shift_x-70_y-50.png
+./images/kahvi_shift_x0_y190.png
+./images/kahvi_shift_x130_y0.png
+./images/kahvi_shift_x170_y-80.png
+./images/kahvi_shift_x200_y130.png
+./images/kahvi_shift_x25_y-35.png
+./images/kahvi_shift_x35_y-50.png
+./images/kahvi_shift_x55_y60.png
+./images/kahvi_shift_x60_y5.png
+./images/kahvi_shift_x80_y-25.png
