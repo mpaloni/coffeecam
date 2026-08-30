@@ -2,7 +2,7 @@
 
 YOLOv8-based detector that finds the coffee pot in a camera frame and crops it out — step 1 toward a fullness-monitoring camera for the break-room coffee maker (`kahvi` = Finnish for coffee).
 
-Detection only, for now. A second model/heuristic to classify how full the pot is comes later, once this pipeline is validated and more sample frames (across fill levels) are collected.
+Detection + a placeholder fullness heuristic, for now. A trained fill-level model drops into the same pipeline slot later, once enough real frames (across fill levels) are collected.
 
 Frames are pulled straight from the camera by `coffeecam/capture.py` (see [Capture](#capture) and [`docs/CAPTURE.md`](docs/CAPTURE.md)); the original dataset seed was a single screenshot (`dataset/images/kahvi.png`).
 
@@ -73,6 +73,21 @@ Writes to `runs/train/weights/best.pt`. With only one labeled image the model wi
 ```
 
 Prints the detected bbox/confidence and saves the cropped pot region to `crops/`.
+Weights come from `models/CHECKPOINT` (a pointer to a `runs/` directory — the
+`.pt` files aren't committed), falling back to the newest run.
+
+## Pipeline dashboard
+
+`coffeecam/server.py` runs `acquire → normalize → detect → crop → classify` on a
+timer and serves each stage over HTTP — the detector/crop are visible now and a
+real fullness classifier drops in later. The classify stage is currently a
+brightness-heuristic placeholder.
+
+```bash
+.venv/bin/python -m coffeecam.server        # http://<host>:8000/  (+ /pipeline.json, /crop.jpg, …)
+```
+
+Details, routes, env vars, and current model limitations: [`docs/PIPELINE.md`](docs/PIPELINE.md).
 
 ## Tests
 
@@ -80,4 +95,6 @@ Prints the detected bbox/confidence and saves the cropped pot region to `crops/`
 .venv/bin/pytest tests/
 ```
 
-Covers bbox math, label I/O, and shift augmentation only — no network/GPU required. Training and detection are exercised manually (see Usage above) since they need `ultralytics` plus downloaded weights.
+No network/GPU required — bbox math, label I/O, shift augmentation, capture
+transform/dedup, and the pipeline + server (with a fake model). Training and live
+detection are exercised manually (see Usage) since they need `ultralytics` plus weights.

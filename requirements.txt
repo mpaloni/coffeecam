@@ -2,6 +2,8 @@ ultralytics
 opencv-python-headless
 pillow
 numpy
+requests
+flask
 
 # Dev & test
 pytest
