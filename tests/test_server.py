@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime
 
 import pytest
@@ -15,12 +16,28 @@ def _reset_server_state():
     server._latest_jpeg = {}
     server._last_fetch_error = None
     server._worker_started = False
+    server._model = None
+    server._summary_cache = None
+    server._viewer_cache = None
+    server._annot_lock = threading.Lock()
     yield
 
 
 @pytest.fixture
 def client():
     return server.create_app(start_worker=False).test_client()
+
+
+@pytest.fixture
+def captures_env(tmp_path, monkeypatch):
+    """A captures/ dir with two day-folders, wired to COFFEECAM_CAPTURES_DIR."""
+    for rel in ("2026-08-31/070008_549.jpg", "2026-08-31/180042_126.jpg",
+                "2026-09-01/101558_558.jpg"):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (424, 353), (90, 90, 90)).save(p, "JPEG")
+    monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path))
+    return tmp_path
 
 
 def _result(*, with_crop=True):
@@ -87,3 +104,155 @@ def test_healthz_degraded_on_fetch_error(client):
     resp = client.get("/healthz")
     assert resp.status_code == 503
     assert resp.get_json()["status"] == "degraded"
+
+
+# --- /annotate labeling endpoint -----------------------------------------
+
+import numpy as np  # noqa: E402
+
+
+class _Scalar(float):
+    def __getitem__(self, _i):
+        return self
+
+
+class _Box:
+    def __init__(self, xyxy, conf):
+        self.xyxy = np.array([xyxy], dtype=float)
+        self.conf = _Scalar(conf)
+
+
+class _FakeModel:
+    def __init__(self, box):
+        self._box = box
+
+    def predict(self, source=None, conf=0.25, imgsz=320, verbose=False):
+        class _R:
+            pass
+
+        r = _R()
+        r.boxes = [self._box] if self._box and float(self._box.conf[0]) >= conf else []
+        return [r]
+
+
+def test_annotate_page_is_html(client):
+    resp = client.get("/annotate")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/html"
+    body = resp.get_data(as_text=True)
+    assert "<canvas id=cv>" in body
+    assert "/annotate/queue.json" in body  # the page self-wires to the API
+    assert "/static/" not in body  # fully inline, no external asset
+
+
+def test_queue_empty_when_no_captures_dir(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path / "nope"))
+    resp = client.get("/annotate/queue.json")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["frames"] == []
+    assert body["counts"] == {"total": 0, "labeled": 0, "remaining": 0}
+    assert client.get("/annotate/frame/0.jpg").status_code == 404
+
+
+def test_queue_lists_unlabeled_then_drops_labeled(client, captures_env):
+    body = client.get("/annotate/queue.json").get_json()
+    assert body["counts"] == {"total": 3, "labeled": 0, "remaining": 3}
+    assert [f["rel"] for f in body["frames"]] == [
+        "2026-08-31/070008_549.jpg",
+        "2026-08-31/180042_126.jpg",
+        "2026-09-01/101558_558.jpg",
+    ]
+
+    r = client.post("/annotate/label", json={"rel": "2026-08-31/180042_126.jpg",
+                                             "boxes": [[10, 20, 100, 120]]})
+    assert r.status_code == 200
+    saved = r.get_json()
+    assert saved["boxes"] == [[10, 20, 100, 120]]
+    assert saved["labeled_at"]
+
+    body = client.get("/annotate/queue.json").get_json()
+    assert body["counts"] == {"total": 3, "labeled": 1, "remaining": 2}
+    assert "2026-08-31/180042_126.jpg" not in [f["rel"] for f in body["frames"]]
+
+    labeled = client.get("/annotate/queue.json?filter=labeled").get_json()
+    assert [f["rel"] for f in labeled["frames"]] == ["2026-08-31/180042_126.jpg"]
+    assert labeled["frames"][0]["boxes"] == [[10, 20, 100, 120]]
+
+    assert len(client.get("/annotate/queue.json?filter=all").get_json()["frames"]) == 3
+
+
+def test_queue_stride_and_start(client, captures_env):
+    strided = client.get("/annotate/queue.json?stride=2").get_json()["frames"]
+    assert [f["rel"] for f in strided] == [
+        "2026-08-31/070008_549.jpg",
+        "2026-09-01/101558_558.jpg",
+    ]
+    started = client.get("/annotate/queue.json?start=2026-09-01").get_json()
+    assert [f["rel"] for f in started["frames"]] == ["2026-09-01/101558_558.jpg"]
+    assert started["counts"]["total"] == 1
+
+
+def test_annotate_frame_serves_raw_bytes(client, captures_env):
+    raw = (captures_env / "2026-08-31/070008_549.jpg").read_bytes()
+    resp = client.get("/annotate/frame/0.jpg")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/jpeg"
+    assert resp.data == raw
+    assert client.get("/annotate/frame/9.jpg").status_code == 404
+
+
+def test_label_negative_round_trips(client, captures_env):
+    r = client.post("/annotate/label", json={"rel": "2026-09-01/101558_558.jpg", "boxes": []})
+    assert r.status_code == 200
+    assert r.get_json()["boxes"] == []
+    labeled = client.get("/annotate/queue.json?filter=labeled").get_json()["frames"]
+    assert labeled[0]["rel"] == "2026-09-01/101558_558.jpg"
+
+
+def test_label_rejects_bad_box(client, captures_env):
+    r = client.post("/annotate/label", json={"rel": "2026-08-31/070008_549.jpg",
+                                             "boxes": [[100, 100, 50, 50]]})
+    assert r.status_code == 400
+    r = client.post("/annotate/label", json={"boxes": []})
+    assert r.status_code == 400
+    # box outside the 424x353 frame
+    r = client.post("/annotate/label", json={"rel": "2026-08-31/070008_549.jpg",
+                                             "boxes": [[0, 0, 999, 10]]})
+    assert r.status_code == 400
+
+
+def test_label_delete_puts_frame_back_in_queue(client, captures_env):
+    client.post("/annotate/label", json={"rel": "2026-08-31/070008_549.jpg",
+                                         "boxes": [[1, 2, 3, 4]]})
+    r = client.post("/annotate/label/delete", json={"rel": "2026-08-31/070008_549.jpg"})
+    assert r.get_json() == {"removed": True}
+    r = client.post("/annotate/label/delete", json={"rel": "2026-08-31/070008_549.jpg"})
+    assert r.get_json() == {"removed": False}
+    rels = [f["rel"] for f in client.get("/annotate/queue.json").get_json()["frames"]]
+    assert "2026-08-31/070008_549.jpg" in rels
+
+
+def test_suggest_503_without_model_then_returns_box(client, captures_env):
+    assert client.get("/annotate/suggest/0.json").status_code == 503
+
+    server._model = _FakeModel(_Box([100, 80, 240, 300], 0.9))
+    body = client.get("/annotate/suggest/0.json").get_json()
+    assert body["source"] == "model"
+    assert len(body["boxes"]) == 1 and len(body["boxes"][0]) == 4
+    assert body["conf"] == pytest.approx(0.9, abs=0.05)
+
+    server._model = _FakeModel(None)
+    assert client.get("/annotate/suggest/0.json").get_json()["source"] == "none"
+
+
+def test_promote_route_needs_confirm(client, captures_env, tmp_path, monkeypatch):
+    monkeypatch.setenv("COFFEECAM_DATASET_DIR", str(tmp_path / "ds"))
+    assert client.post("/annotate/promote").status_code == 400
+    client.post("/annotate/label", json={"rel": "2026-08-31/070008_549.jpg",
+                                         "boxes": [[10, 10, 80, 80]]})
+    r = client.post("/annotate/promote?confirm=1")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["train"] + body["val"] + body["test"] >= 1
+    assert "train" in body["summary"]

@@ -58,6 +58,14 @@ Stitch every shift preview into one animated GIF (box sweeps around the frame, e
 .venv/bin/python -m coffeecam.preview_anim   # -> dataset/shift_previews.gif
 ```
 
+**1c. Label lots of real frames in the browser** — for the ~250 frames in `captures/`, the `/annotate` endpoint on the dashboard beats hand-typing pixel corners: draw a box per frame (live-model prefill with `h`, `x` for an explicit "no pot" negative, `Space` to save + advance). Labels go to a sidecar `captures/annotations.jsonl`, not straight into `dataset/`. Then build the trainable set:
+
+```bash
+.venv/bin/python -m coffeecam.dataset promote            # annotations.jsonl -> dataset/images,labels + train/val/test.txt
+```
+
+`promote` is deterministic and idempotent (hash split; real frames only in val/test, synthetic `kahvi*` stays in train) — re-run it as labels accumulate. Details: [`docs/PIPELINE.md`](docs/PIPELINE.md#annotate--browser-labeling).
+
 **2. Train:**
 
 ```bash

@@ -1,7 +1,13 @@
+import pytest
+from PIL import Image
+
+from coffeecam import annotations
 from coffeecam.dataset import (
     bbox_pixel_to_yolo,
     bbox_yolo_to_pixel,
     clamp_bbox,
+    dest_name_for,
+    promote,
     read_label,
     write_label,
 )
@@ -35,3 +41,127 @@ def test_write_and_read_label_roundtrip(tmp_path):
     write_label(label_path, 0, 0.5, 0.5, 0.2, 0.4)
 
     assert read_label(label_path) == [(0, 0.5, 0.5, 0.2, 0.4)]
+
+
+# --- promote ---------------------------------------------------------------
+
+def _capture(captures_dir, rel, size=(424, 353)):
+    path = captures_dir / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, "gray").save(path, format="JPEG")
+    return path
+
+
+@pytest.fixture
+def promoted(tmp_path):
+    captures = tmp_path / "captures"
+    dataset = tmp_path / "dataset"
+    store = captures / "annotations.jsonl"
+
+    _capture(captures, "2026-08-31/161913_556.jpg")
+    _capture(captures, "2026-08-31/155905_054.jpg")
+    _capture(captures, "2026-09-01/090000_000.jpg")
+    annotations.upsert("2026-08-31/161913_556.jpg", [[171, 88, 249, 206]], store=store)
+    annotations.upsert("2026-08-31/155905_054.jpg", [], note="carafe removed", store=store)
+    annotations.upsert("2026-09-01/090000_000.jpg", [[10, 10, 60, 60], [100, 100, 200, 200]],
+                       store=store)
+    # a labeled row whose image no longer exists on disk
+    annotations.upsert("2026-08-30/000000_000.jpg", [[1, 2, 3, 4]], store=store)
+
+    return dict(captures=captures, dataset=dataset, store=store)
+
+
+def test_dest_name_for():
+    assert dest_name_for("2026-08-31/161913_556.jpg") == "cap_20260831_161913_556.jpg"
+    assert dest_name_for("2026-08-31/161913.jpg") == "cap_20260831_161913.jpg"
+
+
+def test_promote_builds_images_labels_and_manifests(promoted):
+    summary = promote(store=promoted["store"], captures_dir=promoted["captures"],
+                      dataset_dir=promoted["dataset"], val_frac=0.0, test_frac=0.0)
+
+    ds = promoted["dataset"]
+    assert summary.skipped_missing == 1
+    assert summary.negatives == 1
+    for name in ("train.txt", "val.txt", "test.txt"):
+        assert (ds / name).exists()
+
+    # positive multi-box row -> 2 label lines, image copied
+    lbl = ds / "labels" / "cap_20260901_090000_000.txt"
+    assert len(read_label(lbl)) == 2
+    assert (ds / "images" / "cap_20260901_090000_000.jpg").exists()
+
+    # label content matches the conversion helper
+    cx, cy, w, h = bbox_pixel_to_yolo(171, 88, 249, 206, 424, 353)
+    got = read_label(ds / "labels" / "cap_20260831_161913_556.txt")[0]
+    assert got == pytest.approx((0, cx, cy, w, h), abs=1e-6)
+
+
+def test_promote_negative_is_empty_label_but_image_present(promoted):
+    promote(store=promoted["store"], captures_dir=promoted["captures"],
+            dataset_dir=promoted["dataset"], val_frac=0.0, test_frac=0.0)
+    ds = promoted["dataset"]
+    neg = ds / "labels" / "cap_20260831_155905_054.txt"
+    assert neg.read_text() == ""
+    assert (ds / "images" / "cap_20260831_155905_054.jpg").exists()
+
+
+def test_promote_drops_negatives_when_disabled(promoted):
+    summary = promote(store=promoted["store"], captures_dir=promoted["captures"],
+                      dataset_dir=promoted["dataset"], negatives=False,
+                      val_frac=0.0, test_frac=0.0)
+    assert summary.negatives == 0
+    assert not (promoted["dataset"] / "labels" / "cap_20260831_155905_054.txt").exists()
+
+
+def test_promote_keeps_synthetic_in_train_only(promoted):
+    ds = promoted["dataset"]
+    (ds / "images").mkdir(parents=True)
+    Image.new("RGB", (512, 456), "gray").save(ds / "images" / "kahvi.png")
+    Image.new("RGB", (512, 456), "gray").save(ds / "images" / "kahvi_shift_x10_y10.png")
+
+    promote(store=promoted["store"], captures_dir=promoted["captures"],
+            dataset_dir=ds, val_frac=1.0, test_frac=0.0)
+
+    train = (ds / "train.txt").read_text().splitlines()
+    val = (ds / "val.txt").read_text().splitlines()
+    assert "./images/kahvi.png" in train
+    assert "./images/kahvi_shift_x10_y10.png" in train
+    assert not any("kahvi" in line for line in val)
+    assert any("cap_" in line for line in val)  # real frames went to val
+    assert not any("cap_" in line for line in train)
+
+
+def test_promote_is_idempotent(promoted):
+    kw = dict(store=promoted["store"], captures_dir=promoted["captures"],
+              dataset_dir=promoted["dataset"], val_frac=0.0, test_frac=0.0)
+    promote(**kw)
+    ds = promoted["dataset"]
+    first = {n: (ds / n).read_text() for n in ("train.txt", "val.txt", "test.txt")}
+    n_images = len(list((ds / "images").iterdir()))
+
+    promote(**kw)
+    second = {n: (ds / n).read_text() for n in ("train.txt", "val.txt", "test.txt")}
+    assert first == second
+    assert len(list((ds / "images").iterdir())) == n_images
+
+
+def test_promote_dry_run_writes_nothing(promoted):
+    summary = promote(store=promoted["store"], captures_dir=promoted["captures"],
+                      dataset_dir=promoted["dataset"], dry_run=True)
+    assert summary.train >= 0
+    assert not promoted["dataset"].exists()
+
+
+def test_promote_adds_test_key_to_data_yaml(promoted):
+    ds = promoted["dataset"]
+    ds.mkdir()
+    (ds / "data.yaml").write_text("path: dataset\ntrain: train.txt\nval: val.txt\n\nnames:\n  0: coffee_pot\n")
+    promote(store=promoted["store"], captures_dir=promoted["captures"], dataset_dir=ds,
+            val_frac=0.0, test_frac=0.0)
+    text = (ds / "data.yaml").read_text()
+    assert "test: test.txt" in text
+    # idempotent: second run doesn't add it twice
+    promote(store=promoted["store"], captures_dir=promoted["captures"], dataset_dir=ds,
+            val_frac=0.0, test_frac=0.0)
+    assert (ds / "data.yaml").read_text().count("test: test.txt") == 1

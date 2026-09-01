@@ -34,6 +34,48 @@ Env: `COFFEECAM_SOURCE_URL`, `COFFEECAM_REFRESH_SECS` (10), `COFFEECAM_CONF`
 Deploy: `deploy/systemd/coffeecam-web.service` (user unit, same pattern as the
 capture units). Needs a LAN route to `192.168.50.10:8888`.
 
+## `/annotate` — browser labeling
+
+The same server hosts a labeling UI that turns the raw frames in `captures/` into
+a training set. Full design: `docs/annotate-endpoint-plan.md`.
+
+- **`GET /annotate`** — canvas over the frame: drag a `coffee_pot` box, corner
+  handles + drag-to-move, arrow-key nudge (`Shift` = 10px). `Space` saves and
+  advances, `x` saves an explicit negative (no pot), `h` fetches a live-model
+  prefill box, `z` undoes. `filter` (unlabeled/labeled/all) and `stride` (label
+  every Nth frame — `captures/` is full of near-duplicate heartbeat frames) in
+  the side column.
+- Labels are written to a **sidecar `captures/annotations.jsonl`**
+  (`coffeecam/annotations.py`), one upsertable row per frame keyed by its path
+  under `captures/`; `boxes: []` is a kept negative. `captures/` itself is never
+  mutated.
+
+| route | content |
+|---|---|
+| `GET /annotate` | the labeling page |
+| `GET /annotate/queue.json` | `{frames:[{i,rel,ts,labeled,boxes}], counts}`; params `filter`, `stride`, `start=YYYY-MM-DD` |
+| `GET /annotate/frame/<i>.jpg` | raw frame bytes, no box drawn (`i` indexes the current queue) |
+| `GET /annotate/suggest/<i>.json` | `{boxes, source, conf}` from the loaded detector; `503` if no model |
+| `POST /annotate/label` | `{rel, boxes}` → upsert the sidecar row (`[]` = negative) |
+| `POST /annotate/label/delete` | `{rel}` → `{removed: bool}` |
+| `POST /annotate/promote?confirm=1` | runs `dataset.promote` (see below) |
+
+Extra env: `COFFEECAM_DATASET_DIR` (`dataset/`) — where `promote` writes.
+
+**Promote to a trainable dataset:**
+
+```bash
+.venv/bin/python -m coffeecam.dataset promote [--dry-run] [--no-negatives]
+```
+
+`coffeecam.dataset.promote` reads `annotations.jsonl`, copies each labeled frame
+into `dataset/images/` as `cap_YYYYMMDD_HHMMSS[_fff].jpg`, writes its YOLO label
+(empty file for a negative), and regenerates `dataset/{train,val,test}.txt`. The
+split is a deterministic hash of the frame path (`val_frac`/`test_frac` default
+0.15 each); synthetic `kahvi*` frames always stay in `train.txt`, real captured
+frames are the only val/test candidates. Idempotent — re-run as labels
+accumulate, then retrain.
+
 ## Weights
 
 Not committed (~24 MB, git-ignored under `runs/`). `models/CHECKPOINT` is a
