@@ -158,6 +158,8 @@ def _reset_server_state():
     server._model = None
     server._summary_cache = None
     server._viewer_cache = None
+    server._compare_cache = None
+    server._compare_models.clear()
     yield
 
 

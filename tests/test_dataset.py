@@ -132,6 +132,35 @@ def test_promote_keeps_synthetic_in_train_only(promoted):
     assert not any("cap_" in line for line in train)
 
 
+def test_promote_drop_kahvi_aug_keeps_bare_kahvi_and_real_augs(promoted):
+    ds = promoted["dataset"]
+    (ds / "images").mkdir(parents=True)
+    for n in ("kahvi.png", "kahvi_shift_x10_y10.png", "cap_20260101_120000_shift_x5_y5.png"):
+        Image.new("RGB", (512, 456), "gray").save(ds / "images" / n)
+
+    promote(store=promoted["store"], captures_dir=promoted["captures"],
+            dataset_dir=ds, val_frac=1.0, test_frac=0.0, kahvi_aug=False)
+
+    train = (ds / "train.txt").read_text().splitlines()
+    assert "./images/kahvi.png" in train                       # seed frame kept
+    assert "./images/kahvi_shift_x10_y10.png" not in train     # kahvi aug dropped
+    assert "./images/cap_20260101_120000_shift_x5_y5.png" in train  # real-frame aug kept
+
+
+def test_promote_drop_kahvi_removes_all_kahvi(promoted):
+    ds = promoted["dataset"]
+    (ds / "images").mkdir(parents=True)
+    for n in ("kahvi.png", "kahvi_shift_x10_y10.png", "cap_20260101_120000_shift_x5_y5.png"):
+        Image.new("RGB", (512, 456), "gray").save(ds / "images" / n)
+
+    promote(store=promoted["store"], captures_dir=promoted["captures"],
+            dataset_dir=ds, val_frac=1.0, test_frac=0.0, drop_kahvi=True)
+
+    train = (ds / "train.txt").read_text().splitlines()
+    assert not any("kahvi" in line for line in train)             # bare + augs gone
+    assert "./images/cap_20260101_120000_shift_x5_y5.png" in train  # real-frame aug kept
+
+
 def test_promote_is_idempotent(promoted):
     kw = dict(store=promoted["store"], captures_dir=promoted["captures"],
               dataset_dir=promoted["dataset"], val_frac=0.0, test_frac=0.0)
@@ -151,6 +180,20 @@ def test_promote_dry_run_writes_nothing(promoted):
                       dataset_dir=promoted["dataset"], dry_run=True)
     assert summary.train >= 0
     assert not promoted["dataset"].exists()
+
+
+def test_promote_excludes_watched_rows(promoted):
+    _capture(promoted["captures"], "2026-09-01/120000_000.jpg")
+    annotations.skip("2026-09-01/120000_000.jpg", store=promoted["store"])
+    summary = promote(store=promoted["store"], captures_dir=promoted["captures"],
+                      dataset_dir=promoted["dataset"], val_frac=0.0, test_frac=0.0)
+    assert summary.watched == 1
+    ds = promoted["dataset"]
+    assert not (ds / "images" / "cap_20260901_120000_000.jpg").exists()
+    assert not (ds / "labels" / "cap_20260901_120000_000.txt").exists()
+    manifest = (ds / "train.txt").read_text()
+    assert "cap_20260901_120000_000" not in manifest
+    assert "watched" in str(summary)
 
 
 def test_promote_adds_test_key_to_data_yaml(promoted):

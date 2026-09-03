@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -32,6 +33,12 @@ from coffeecam.normalize import map_bbox_back, match_training_frame
 from coffeecam.pipeline import DEFAULT_CONF
 
 DEFAULT_CAPTURES_DIR = Path("captures")
+DEFAULT_DATASET_DIR = Path("dataset")
+# Named frame sets `build_summary_gif` / the /summary endpoint can render:
+# "captures" walks captures/<day>/*.jpg (the live timelapse, the default);
+# "train"/"val"/"test" read dataset/<split>.txt (the promoted, YOLO-labelled
+# splits) so the same annotator can be pointed at the held-out eval frames.
+FRAMESETS = ("captures", "train", "val", "test")
 DEFAULT_MAX_FRAMES = 240
 DEFAULT_DURATION_MS = 120
 # Probe well below the pipeline's confidence floor so we can still show the box
@@ -55,6 +62,7 @@ class FrameRef:
     day: str
     ts_label: str  # "YYYY-MM-DD HH:MM:SS"
     _key: tuple
+    label_path: Path | None = None  # YOLO .txt, set only for dataset-split frames
 
 
 def _hms(stem: str) -> str:
@@ -62,6 +70,59 @@ def _hms(stem: str) -> str:
     if len(digits) >= 6 and digits[:6].isdigit():
         return f"{digits[0:2]}:{digits[2:4]}:{digits[4:6]}"
     return ""
+
+
+def _cap_stem_label(stem: str) -> str:
+    """`cap_20260831_131814_558` -> `2026-08-31 13:18:14` (best effort)."""
+    parts = stem.split("_")
+    if len(parts) >= 3 and parts[0] == "cap" and len(parts[1]) == 8 and len(parts[2]) >= 6:
+        d, t = parts[1], parts[2]
+        return f"{d[0:4]}-{d[4:6]}-{d[6:8]} {t[0:2]}:{t[2:4]}:{t[4:6]}"
+    return stem
+
+
+def collect_split_frames(
+    split: str, dataset_dir: Path = DEFAULT_DATASET_DIR
+) -> list[FrameRef]:
+    """Every image listed in ``dataset/<split>.txt``, in file order.
+
+    Each line is a path relative to the dataset dir (``./images/<name>.jpg``);
+    the YOLO label is the same path with ``images`` -> ``labels`` and a ``.txt``
+    suffix. Missing image files are skipped. ``day`` is the split name so the
+    caller can group/label by it.
+    """
+    dataset_dir = Path(dataset_dir)
+    listing = dataset_dir / f"{split}.txt"
+    if not listing.is_file():
+        return []
+    refs: list[FrameRef] = []
+    for i, line in enumerate(listing.read_text().splitlines()):
+        rel = line.strip()
+        if not rel:
+            continue
+        img = (dataset_dir / rel.lstrip("./")).resolve()
+        if not img.is_file():
+            continue
+        lbl = Path(str(img).replace(f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}"))
+        lbl = lbl.with_suffix(".txt")
+        label = _cap_stem_label(img.stem)
+        refs.append(FrameRef(img, split, f"{split}  {label}", (i,), lbl if lbl.is_file() else None))
+    return refs
+
+
+def resolve_frames(
+    frameset: str,
+    *,
+    captures_dir: Path = DEFAULT_CAPTURES_DIR,
+    dataset_dir: Path = DEFAULT_DATASET_DIR,
+) -> list[FrameRef]:
+    """Frames for a named set (see ``FRAMESETS``). Raises ``ValueError`` for an
+    unknown name; returns ``[]`` when the set is simply empty."""
+    if frameset == "captures":
+        return collect_frames(captures_dir)
+    if frameset in ("train", "val", "test"):
+        return collect_split_frames(frameset, dataset_dir)
+    raise ValueError(f"unknown frameset {frameset!r}; pick one of {', '.join(FRAMESETS)}")
 
 
 def collect_frames(captures_dir: Path = DEFAULT_CAPTURES_DIR) -> list[FrameRef]:
@@ -151,6 +212,8 @@ def _render_frame(ref: FrameRef, *, model, conf: float, scale: float, index: int
 def build_summary_gif(
     *,
     captures_dir: Path = DEFAULT_CAPTURES_DIR,
+    frameset: str = "captures",
+    dataset_dir: Path = DEFAULT_DATASET_DIR,
     out: Path | None = None,
     model=None,
     conf: float = DEFAULT_CONF,
@@ -158,12 +221,15 @@ def build_summary_gif(
     duration_ms: int = DEFAULT_DURATION_MS,
     scale: float = 1.0,
 ) -> tuple[bytes, dict]:
-    """Build the timelapse GIF. Pass ``model`` to annotate each frame with the
-    detector's result box; leave it ``None`` for a plain timelapse."""
+    """Build the timelapse GIF. ``frameset`` picks which images to stitch
+    (``"captures"`` default, or a ``"train"``/``"val"``/``"test"`` dataset split).
+    Pass ``model`` to annotate each frame with the detector's result box; leave it
+    ``None`` for a plain timelapse."""
     t0 = time.perf_counter()
-    refs = collect_frames(captures_dir)
+    refs = resolve_frames(frameset, captures_dir=captures_dir, dataset_dir=dataset_dir)
     if not refs:
-        raise SummaryEmpty(f"no capture frames under {captures_dir}/")
+        where = f"{captures_dir}/" if frameset == "captures" else f"{dataset_dir}/{frameset}.txt"
+        raise SummaryEmpty(f"no frames for set {frameset!r} ({where})")
 
     picked = _sample(refs, max_frames)
     counts = {"strong": 0, "weak_only": 0, "no_box": 0}
@@ -187,6 +253,7 @@ def build_summary_gif(
     gif = buf.getvalue()
 
     meta = {
+        "frameset": frameset,
         "source_frames": len(refs),
         "rendered_frames": len(picked),
         "annotated": model is not None,
@@ -209,7 +276,10 @@ def build_summary_gif(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=Path("summary.gif"))
+    ap.add_argument("--set", dest="frameset", choices=FRAMESETS, default="captures",
+                    help="which images to stitch (default: captures)")
     ap.add_argument("--captures-dir", type=Path, default=DEFAULT_CAPTURES_DIR)
+    ap.add_argument("--dataset-dir", type=Path, default=DEFAULT_DATASET_DIR)
     ap.add_argument("--max-frames", type=int, default=DEFAULT_MAX_FRAMES)
     ap.add_argument("--ms", type=int, default=DEFAULT_DURATION_MS, help="milliseconds per frame")
     ap.add_argument("--scale", type=float, default=1.0)
@@ -226,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _, meta = build_summary_gif(
             captures_dir=args.captures_dir,
+            frameset=args.frameset,
+            dataset_dir=args.dataset_dir,
             out=args.out,
             model=model,
             conf=args.conf,

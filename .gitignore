@@ -12,3 +12,6 @@ __pycache__/
 *.pt
 *.cache
 .pytest_cache/
+
+# working detritus (logs, backups, compare outputs)
+scratchpad/

@@ -121,3 +121,45 @@ def test_validate_boxes_accepts_integer_valued_float():
 
 def test_default_store_constant():
     assert str(annotations.DEFAULT_STORE) == "captures/annotations.jsonl"
+
+
+def test_skip_round_trips_and_json_carries_flag(store):
+    ann = annotations.skip("a/9.jpg", store=store)
+    assert ann.skip is True and ann.boxes == []
+    reloaded = load(store)["a/9.jpg"]
+    assert reloaded.skip is True
+    # the flag is only serialized when true; a plain label has no "skip" key
+    upsert("a/8.jpg", [[1, 2, 3, 4]], store=store)
+    lines = [json.loads(l) for l in store.read_text().splitlines()]
+    by_rel = {r["rel"]: r for r in lines}
+    assert by_rel["a/9.jpg"]["skip"] is True
+    assert "skip" not in by_rel["a/8.jpg"]
+
+
+def test_skip_many_only_adds_missing_rows(store):
+    upsert("a/1.jpg", [[1, 2, 3, 4]], store=store)
+    annotations.skip("a/2.jpg", store=store)
+    added = annotations.skip_many(["a/1.jpg", "a/2.jpg", "a/3.jpg", "a/4.jpg"], store=store)
+    assert added == 2  # 1 and 2 already had rows
+    rows = load(store)
+    assert rows["a/1.jpg"].boxes == [(1, 2, 3, 4)] and rows["a/1.jpg"].skip is False
+    assert rows["a/3.jpg"].skip is True and rows["a/4.jpg"].skip is True
+
+
+def test_skip_then_remove_unskips(store):
+    annotations.skip("a/1.jpg", store=store)
+    assert remove("a/1.jpg", store=store) is True
+    assert "a/1.jpg" not in load(store)
+
+
+def test_iter_captures_start_filter(tmp_path):
+    for rel in ("2026-08-31/a.jpg", "2026-09-01/b.jpg", "2026-09-02/c.jpg"):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x")
+    assert annotations._iter_captures(tmp_path) == [
+        "2026-08-31/a.jpg", "2026-09-01/b.jpg", "2026-09-02/c.jpg",
+    ]
+    assert annotations._iter_captures(tmp_path, start="2026-09-01") == [
+        "2026-09-01/b.jpg", "2026-09-02/c.jpg",
+    ]

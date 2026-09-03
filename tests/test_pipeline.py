@@ -93,7 +93,7 @@ def test_pipeline_happy_path_maps_bbox_into_frame():
     assert r.errors == []
     assert set(r.timings_ms) == {"transform", "normalize", "detect", "crop", "classify"}
     assert r.normalized is not None and r.normalized.size[0] > r.frame.size[0] - 1
-    assert model.calls[0]["imgsz"] == 320  # trained size forwarded
+    assert model.calls[0]["imgsz"] == 640  # trained size forwarded (trackB-v1)
 
     d = r.detection
     assert d is not None

@@ -21,8 +21,16 @@ Env:
   COFFEECAM_DATASET_DIR   output dir for POST /annotate/promote (default dataset/)
 
 /summary[.gif] renders every captured frame so far into one animated GIF, each
-frame annotated with the current detector's result box (query params: annotate,
-frames, ms, scale, conf, rebuild). /summary.json returns the build metadata.
+frame annotated with the current detector's result box (query params: set,
+annotate, frames, ms, scale, conf, rebuild). ?set=captures (default) | train |
+val | test picks the image set — the dataset splits point the annotator at the
+promoted, YOLO-labelled frames. /summary.json returns the build metadata.
+
+/compare[.gif] stitches two or more detectors' result boxes side by side on the
+same frames (query params: model=NAME=run_or_pt repeatable — default is the
+pre-retrain baseline vs models/CHECKPOINT — plus set, frames, ms, scale, conf,
+rebuild). /compare.json returns per-model strong/weak/none counts. No mAP: use
+the `python -m coffeecam.compare` CLI for scored (`.val()`) comparisons.
 
 /viewer is the scrubbable version of the same timelapse: an HTML page with
 play/pause and a frame slider, backed by /viewer/frame/<i>.jpg (the annotated
@@ -46,7 +54,9 @@ from coffeecam.capture import DEFAULT_SOURCE, fetch_snapshot
 from coffeecam.pipeline import DEFAULT_CONF, PipelineResult, run_pipeline
 from coffeecam.summary import (
     DEFAULT_CAPTURES_DIR,
+    DEFAULT_DATASET_DIR,
     DEFAULT_DURATION_MS,
+    FRAMESETS,
     SummaryEmpty,
     build_summary_gif,
     collect_frames,
@@ -196,7 +206,11 @@ def _arg_bool(name: str, default: bool) -> bool:
 def _summary_args() -> dict:
     # Route defaults trade fidelity for a lighter payload (a full-res annotated
     # GIF of every frame runs ~18 MB); pass ?scale=1&frames=240 for the lot.
+    frameset = request.args.get("set", "captures").strip().lower()
+    if frameset not in FRAMESETS:
+        frameset = "captures"
     return dict(
+        frameset=frameset,
         annotate=_arg_bool("annotate", True),
         max_frames=_arg_int("frames", 160),
         ms=_arg_int("ms", DEFAULT_DURATION_MS),
@@ -206,20 +220,23 @@ def _summary_args() -> dict:
     )
 
 
-def _build_summary(*, annotate: bool, max_frames: int, ms: int, scale: float, conf: float, force: bool):
+def _build_summary(*, frameset: str, annotate: bool, max_frames: int, ms: int, scale: float, conf: float, force: bool):
     """Cached wrapper around `summary.build_summary_gif`. Rebuilds when the
     parameters change, on `?rebuild=1`, or once the cached GIF is older than
     COFFEECAM_SUMMARY_TTL seconds (default 300) so new captures roll in."""
     global _summary_cache
     ttl = float(os.environ.get("COFFEECAM_SUMMARY_TTL", "300"))
     captures_dir = Path(os.environ.get("COFFEECAM_CAPTURES_DIR", DEFAULT_CAPTURES_DIR))
-    sig = (str(captures_dir), annotate, max_frames, ms, round(scale, 3), round(conf, 3))
+    dataset_dir = Path(os.environ.get("COFFEECAM_DATASET_DIR", DEFAULT_DATASET_DIR))
+    sig = (str(captures_dir), str(dataset_dir), frameset, annotate, max_frames, ms, round(scale, 3), round(conf, 3))
     with _summary_lock:
         cached = _summary_cache
         if cached and not force and cached["sig"] == sig and (time.time() - cached["at"]) < ttl:
             return cached["gif"], cached["meta"]
         gif, meta = build_summary_gif(
             captures_dir=captures_dir,
+            frameset=frameset,
+            dataset_dir=dataset_dir,
             model=_model if annotate else None,
             conf=conf,
             max_frames=max_frames,
@@ -268,6 +285,87 @@ def _build_viewer(*, annotate: bool, max_frames: int, scale: float, conf: float,
         return build
 
 
+# --- /compare: two (or more) detectors side by side on the same frames --------
+
+_compare_lock = threading.Lock()
+_compare_cache: dict | None = None
+_compare_models: dict[str, object] = {}  # resolved-weights-path -> loaded YOLO
+
+# `?model=NAME=run_or_pt` is repeatable; with none given we diff the pre-retrain
+# baseline against whatever `models/CHECKPOINT` now points at.
+DEFAULT_COMPARE_MODELS = (
+    ("nomosaic-2", "runs/detect/runs/train-nomosaic-2"),
+    ("checkpoint", ""),  # "" -> models/CHECKPOINT (the live weights, reuses _model)
+)
+
+
+def _compare_model_for(spec: str):
+    """Load (and cache) the model for a ``run dir | .pt | ""`` spec. ``""`` means
+    the live checkpoint — reuse the worker's already-loaded ``_model`` if there."""
+    from coffeecam.compare import resolve_model_weights
+    from coffeecam.detect import load_model, resolve_weights
+
+    weights = resolve_weights(None) if spec == "" else resolve_model_weights(spec)
+    weights = Path(weights)
+    if not weights.is_file():
+        raise FileNotFoundError(f"no weights at {weights}")
+    key = str(weights.resolve())
+    if spec == "" and _model is not None and key == str(Path(resolve_weights(None)).resolve()):
+        return _model
+    if key not in _compare_models:
+        _compare_models[key] = load_model(weights)
+    return _compare_models[key]
+
+
+def _compare_args() -> dict:
+    raw = request.args.getlist("model")
+    pairs = []
+    for item in raw:
+        name, _, spec = item.partition("=")
+        pairs.append((name.strip() or spec.strip(), spec.strip()))
+    if not pairs:
+        pairs = list(DEFAULT_COMPARE_MODELS)
+    frameset = request.args.get("set", "captures").strip().lower()
+    if frameset not in FRAMESETS:
+        frameset = "captures"
+    return dict(
+        pairs=tuple(pairs),
+        frameset=frameset,
+        max_frames=_arg_int("frames", 80),
+        ms=_arg_int("ms", 350),
+        scale=_arg_float("scale", 0.6),
+        conf=_arg_float("conf", DEFAULT_CONF),
+        force=_arg_bool("rebuild", False),
+    )
+
+
+def _build_compare(*, pairs, frameset, max_frames, ms, scale, conf, force):
+    """Cached wrapper around `compare.build_comparison_gif`. Same cache discipline
+    as `_build_summary`. No mAP here — `.val()` is too slow for a request; use the
+    `coffeecam.compare` CLI for scored comparisons."""
+    global _compare_cache
+    from coffeecam.compare import build_comparison_gif
+    from coffeecam.summary import resolve_frames
+
+    ttl = float(os.environ.get("COFFEECAM_SUMMARY_TTL", "300"))
+    captures_dir = Path(os.environ.get("COFFEECAM_CAPTURES_DIR", DEFAULT_CAPTURES_DIR))
+    dataset_dir = Path(os.environ.get("COFFEECAM_DATASET_DIR", DEFAULT_DATASET_DIR))
+    sig = (str(captures_dir), str(dataset_dir), pairs, frameset, max_frames, ms,
+           round(scale, 3), round(conf, 3))
+    with _compare_lock:
+        cached = _compare_cache
+        if cached and not force and cached["sig"] == sig and (time.time() - cached["at"]) < ttl:
+            return cached["gif"], cached["meta"]
+        named = {name: _compare_model_for(spec) for name, spec in pairs}
+        refs = resolve_frames(frameset, captures_dir=captures_dir, dataset_dir=dataset_dir)
+        gif, stats = build_comparison_gif(
+            refs, named, conf=conf, scale=scale, max_frames=max_frames, duration_ms=ms
+        )
+        meta = {**stats, "set": frameset, "specs": {n: (s or "models/CHECKPOINT") for n, s in pairs}}
+        _compare_cache = {"sig": sig, "gif": gif, "meta": meta, "at": time.time()}
+        return gif, meta
+
+
 # --- /annotate: browser bbox-labeling backed by captures/annotations.jsonl ---
 
 def _annot_captures_dir() -> Path:
@@ -286,8 +384,11 @@ def _annot_queue():
     labeled)`` so ``/annotate/frame/<i>`` and ``/suggest/<i>`` can resolve ``i``
     against the exact same ordering.
 
-    Params: ``filter=unlabeled|labeled|all`` (default unlabeled),
+    Params: ``filter=unlabeled|labeled|watched|all`` (default unlabeled),
     ``stride=N`` (take every Nth frame, default 1), ``start=YYYY-MM-DD``.
+
+    A *watched* row (``skip=True``) counts as neither labeled nor unlabeled: it
+    is out of the default queue but reachable via ``filter=watched``.
     """
     from coffeecam import annotations
 
@@ -304,30 +405,42 @@ def _annot_queue():
         rel = r.path.relative_to(captures_dir).as_posix()
         if start and r.day < start:
             continue
-        rows.append((rel, r, rel in anns))
+        ann = anns.get(rel)
+        is_skip = ann is not None and ann.skip
+        is_l = ann is not None and not ann.skip
+        rows.append((rel, r, is_l, is_skip))
 
     total = len(rows)
-    labeled = sum(1 for _, _, is_l in rows if is_l)
+    labeled = sum(1 for _, _, is_l, _ in rows if is_l)
+    watched = sum(1 for _, _, _, is_s in rows if is_s)
 
     strided = rows[::stride]
     if filt == "labeled":
         picked = [x for x in strided if x[2]]
+    elif filt == "watched":
+        picked = [x for x in strided if x[3]]
     elif filt == "all":
         picked = list(strided)
     else:
-        picked = [x for x in strided if not x[2]]
+        picked = [x for x in strided if not x[2] and not x[3]]
 
     frames = []
-    for i, (rel, r, is_l) in enumerate(picked):
+    for i, (rel, r, is_l, is_skip) in enumerate(picked):
         ann = anns.get(rel)
         frames.append({
             "i": i,
             "rel": rel,
             "ts": r.ts_label,
             "labeled": is_l,
+            "skip": is_skip,
             "boxes": [list(b) for b in ann.boxes] if ann else [],
         })
-    counts = {"total": total, "labeled": labeled, "remaining": total - labeled}
+    counts = {
+        "total": total,
+        "labeled": labeled,
+        "watched": watched,
+        "remaining": total - labeled - watched,
+    }
     return frames, counts, picked, captures_dir
 
 
@@ -363,13 +476,16 @@ _ANNOTATE_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam annotate
   <div class=row><button id=prev>&larr; prev</button><button id=next>next &rarr;</button></div>
   <button id=save>save + next &nbsp;<span class=k>Space</span></button>
   <button id=neg>negative (no pot) &nbsp;<span class=k>x</span></button>
+  <button id=skip>skip / watched &nbsp;<span class=k>s</span></button>
   <button id=hint>suggest a box &nbsp;<span class=k>h</span></button>
   <button id=clear>clear boxes &nbsp;<span class=k>d</span></button>
   <button id=del>delete saved label &nbsp;<span class=k>&#9003;</span></button>
+  <button id=skiprest>skip rest of queue</button>
   <button id=reload>reload queue</button>
   <label class=f>filter <select id=filter>
     <option value=unlabeled selected>unlabeled</option>
     <option value=labeled>labeled</option>
+    <option value=watched>watched</option>
     <option value=all>all</option></select></label>
   <label class=f>stride <select id=stride>
     <option>1</option><option>2</option><option>3</option><option>5</option><option>10</option>
@@ -499,10 +615,12 @@ function show() {
   boxes = (f.boxes || []).map(b => ({ x1:b[0], y1:b[1], x2:b[2], y2:b[3] }));
   if (boxes.length) sel = 0;
   $('hdr').innerHTML = '<b>' + f.rel + '</b><br>' + f.ts + ' &middot; coffee_pot' +
-    (f.labeled ? ' &middot; <span style="color:#4caf50">saved</span>' : '');
+    (f.labeled ? ' &middot; <span style="color:#4caf50">saved</span>' : '') +
+    (f.skip ? ' &middot; <span style="color:#e0a020">watched</span>' : '');
   $('count').textContent = counts.labeled + ' / ' + counts.total +
-    ' labeled &middot; ' + (queue.length - pos) + ' in queue';
-  view.onload = () => { fitCanvas(); if (!f.labeled) getSuggestion(); };
+    ' labeled &middot; ' + (counts.watched || 0) + ' watched &middot; ' +
+    (queue.length - pos) + ' in queue';
+  view.onload = () => { fitCanvas(); if (!f.labeled && !f.skip) getSuggestion(); };
   view.src = '/annotate/frame/' + f.i + '.jpg?' + qs();
 }
 function showDone() {
@@ -556,11 +674,31 @@ async function delSaved() {
   const { data } = await post('/annotate/label/delete', { rel: f.rel });
   if (data.removed) { counts.labeled--; f.labeled = false; f.boxes = []; boxes = []; sel = -1; show(); }
 }
+async function skipFrame() {
+  const f = queue[pos]; if (!f) return;
+  const { ok, data } = await post('/annotate/skip', { rel: f.rel });
+  if (!ok) { $('count').textContent = 'skip failed: ' + (data.error || '?'); return; }
+  if (!f.skip) counts.watched = (counts.watched || 0) + 1;
+  f.skip = true;
+  pos++; show();
+}
+async function skipRest() {
+  const left = queue.slice(pos).filter(f => !f.labeled && !f.skip).length;
+  if (!left) { $('count').textContent = 'nothing unlabeled left to skip'; return; }
+  if (!confirm('Mark ' + left + '+ unlabeled frame(s) as watched? '
+      + '(everything not yet labeled, not just this strided view)')) return;
+  const r = await fetch('/annotate/skip-queue?' + qs(), { method:'POST' });
+  const d = await r.json();
+  $('count').textContent = 'marked ' + (d.skipped || 0) + ' watched';
+  loadQueue();
+}
 
 $('prev').onclick = () => { if (pos > 0) { pos--; show(); } };
 $('next').onclick = () => { pos++; show(); };
 $('save').onclick = () => save(false);
 $('neg').onclick = () => save(true);
+$('skip').onclick = skipFrame;
+$('skiprest').onclick = skipRest;
 $('hint').onclick = () => suggestion ? acceptSuggestion() : getSuggestion();
 $('clear').onclick = () => { pushUndo(); boxes = []; sel = -1; draw(); };
 $('del').onclick = delSaved;
@@ -572,6 +710,7 @@ addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
   if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); save(false); }
   else if (e.key === 'x') save(true);
+  else if (e.key === 's') skipFrame();
   else if (e.key === 'h') $('hint').onclick();
   else if (e.key === 'd') $('clear').onclick();
   else if (e.key === 'z') doUndo();
@@ -711,7 +850,7 @@ _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
  <figure><figcaption>4 · crop &rarr; classify</figcaption><img src="/crop.jpg?t={ts}"></figure>
 </div>
 <pre>timings_ms: {timings}
-{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames)</pre>
+{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames)</pre>
 """
 
 
@@ -795,6 +934,27 @@ def create_app(start_worker: bool = True) -> Flask:
             _, meta = _build_summary(**_summary_args())
         except SummaryEmpty as exc:
             return jsonify({"error": str(exc)}), 404
+        return jsonify(meta)
+
+    @app.get("/compare")
+    @app.get("/compare.gif")
+    def compare_gif():
+        try:
+            gif, _ = _build_compare(**_compare_args())
+        except SummaryEmpty as exc:
+            return Response(str(exc), status=404, mimetype="text/plain")
+        except (FileNotFoundError, ValueError) as exc:
+            return Response(str(exc), status=400, mimetype="text/plain")
+        return Response(gif, mimetype="image/gif", headers={"Cache-Control": "no-store"})
+
+    @app.get("/compare.json")
+    def compare_json():
+        try:
+            _, meta = _build_compare(**_compare_args())
+        except SummaryEmpty as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (FileNotFoundError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
         return jsonify(meta)
 
     @app.get("/viewer")
@@ -907,6 +1067,37 @@ def create_app(start_worker: bool = True) -> Flask:
             removed = annotations.remove(rel, store=_annot_store_path())
         return jsonify({"removed": removed})
 
+    @app.post("/annotate/skip")
+    def annotate_skip():
+        from coffeecam import annotations
+
+        data = request.get_json(silent=True) or {}
+        rel = data.get("rel")
+        if not isinstance(rel, str) or not rel.strip():
+            return jsonify({"error": "missing rel"}), 400
+        with _annot_lock:
+            ann = annotations.skip(rel, store=_annot_store_path())
+        return jsonify(ann.to_json())
+
+    @app.post("/annotate/skip-queue")
+    def annotate_skip_queue():
+        """Mark every currently-unlabeled frame watched (honours ``start``;
+        ignores ``stride`` so no gaps are left behind)."""
+        from coffeecam import annotations
+
+        captures_dir = _annot_captures_dir()
+        anns = annotations.load(_annot_store_path())
+        start = request.args.get("start")
+        rels = [
+            r.path.relative_to(captures_dir).as_posix()
+            for r in collect_frames(captures_dir)
+            if not (start and r.day < start)
+        ]
+        todo = [rel for rel in rels if rel not in anns]
+        with _annot_lock:
+            n = annotations.skip_many(todo, store=_annot_store_path())
+        return jsonify({"skipped": n})
+
     @app.post("/annotate/promote")
     def annotate_promote():
         if request.args.get("confirm") != "1":
@@ -927,6 +1118,7 @@ def create_app(start_worker: bool = True) -> Flask:
             "test": summary.test,
             "negatives": summary.negatives,
             "skipped_missing": summary.skipped_missing,
+            "watched": summary.watched,
         })
 
     @app.get("/")

@@ -83,11 +83,13 @@ class PromoteSummary:
     test: int
     negatives: int
     skipped_missing: int
+    watched: int = 0
 
     def __str__(self) -> str:
         return (
             f"{self.train} train / {self.val} val / {self.test} test, "
             f"{self.negatives} negatives"
+            + (f", {self.watched} watched (excluded)" if self.watched else "")
             + (f", {self.skipped_missing} skipped (image missing)" if self.skipped_missing else "")
         )
 
@@ -113,13 +115,32 @@ def _split_bucket(rel: str, *, seed: int, val_frac: float, test_frac: float) -> 
     return "train"
 
 
-def _existing_synthetic(images_dir: Path) -> list[str]:
+def _is_synthetic(name: str, *, kahvi_aug: bool = True) -> bool:
+    # kahvi.png + its copies, and any augment_shift output (stem carries
+    # "_shift_x..."), regardless of which frame it was derived from.
+    # With ``kahvi_aug=False`` the kahvi *augmentations* are dropped (they all
+    # derive from one off-camera screenshot and otherwise dominate train) while
+    # bare ``kahvi.png`` and the real-frame augs are kept.
+    if name.startswith(_SYNTHETIC_PREFIX):
+        return kahvi_aug or "_shift_x" not in name
+    return "_shift_x" in name
+
+
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp"}
+
+
+def _existing_synthetic(
+    images_dir: Path, *, kahvi_aug: bool = True, drop_kahvi: bool = False
+) -> list[str]:
     if not images_dir.is_dir():
         return []
     return sorted(
         f"./images/{p.name}"
         for p in images_dir.iterdir()
-        if p.is_file() and p.name.startswith(_SYNTHETIC_PREFIX)
+        if p.is_file()
+        and p.suffix.lower() in _IMAGE_SUFFIXES  # skip ultralytics' .npy disk cache
+        and not (drop_kahvi and p.name.startswith(_SYNTHETIC_PREFIX))
+        and _is_synthetic(p.name, kahvi_aug=kahvi_aug)
     )
 
 
@@ -148,11 +169,15 @@ def promote(
     test_frac: float = 0.15,
     seed: int = 0,
     negatives: bool = True,
+    kahvi_aug: bool = True,
+    drop_kahvi: bool = False,
     dry_run: bool = False,
 ) -> PromoteSummary:
     """Build ``dataset/{images,labels}`` + split manifests from the label store.
 
     - Rows whose image is missing on disk are skipped.
+    - ``skip`` (watched) rows are dropped entirely — neither a positive nor a
+      background negative.
     - ``boxes == []`` rows are negatives: image copied, empty label file. Set
       ``negatives=False`` to drop them.
     - Split is a deterministic hash of ``rel``; synthetic ``kahvi*`` frames stay
@@ -174,10 +199,13 @@ def promote(
     rows = annotations.load(store)
 
     manifests: dict[str, list[str]] = {"train": [], "val": [], "test": []}
-    n_negatives = skipped = 0
+    n_negatives = skipped = n_watched = 0
 
     for rel in sorted(rows):
         ann = rows[rel]
+        if ann.skip:
+            n_watched += 1
+            continue
         src = captures_dir / rel
         if not src.exists():
             skipped += 1
@@ -195,7 +223,10 @@ def promote(
             write_example(src, list(ann.boxes), images_dir=images_dir, labels_dir=labels_dir,
                           dest_name=name)
 
-    train = sorted(set(_existing_synthetic(images_dir)) | set(manifests["train"]))
+    train = sorted(
+        set(_existing_synthetic(images_dir, kahvi_aug=kahvi_aug, drop_kahvi=drop_kahvi))
+        | set(manifests["train"])
+    )
     val = sorted(manifests["val"])
     test = sorted(manifests["test"])
 
@@ -208,7 +239,7 @@ def promote(
 
     return PromoteSummary(
         train=len(train), val=len(val), test=len(test),
-        negatives=n_negatives, skipped_missing=skipped,
+        negatives=n_negatives, skipped_missing=skipped, watched=n_watched,
     )
 
 
@@ -223,6 +254,16 @@ def main() -> None:
     p.add_argument("--test-frac", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--no-negatives", action="store_true")
+    p.add_argument(
+        "--drop-kahvi-aug", action="store_true",
+        help="exclude the kahvi.png shift/rotate augmentations from train.txt "
+        "(keeps bare kahvi.png + real-frame augs); they otherwise dominate train",
+    )
+    p.add_argument(
+        "--drop-kahvi", action="store_true",
+        help="exclude kahvi.png AND every kahvi* derivative from train.txt entirely "
+        "(kahvi is one off-camera screenshot; use once the real set carries training)",
+    )
     p.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -234,6 +275,8 @@ def main() -> None:
         test_frac=args.test_frac,
         seed=args.seed,
         negatives=not args.no_negatives,
+        kahvi_aug=not args.drop_kahvi_aug,
+        drop_kahvi=args.drop_kahvi,
         dry_run=args.dry_run,
     )
     print(("[dry-run] " if args.dry_run else "") + str(summary))

@@ -10,7 +10,9 @@ from coffeecam.summary import (
     SummaryEmpty,
     build_summary_gif,
     collect_frames,
+    collect_split_frames,
     detect_on_frame,
+    resolve_frames,
     _sample,
 )
 
@@ -158,6 +160,65 @@ def test_build_empty_raises(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# frame sets: dataset splits
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def dataset(tmp_path):
+    """A minimal promoted dataset: 3 test frames (2 with labels), 1 train frame."""
+    ds = tmp_path / "dataset"
+    (ds / "images").mkdir(parents=True)
+    (ds / "labels").mkdir()
+    for name in ("cap_20260831_131814_558", "cap_20260901_090000_001", "cap_20260901_091500"):
+        _write_frame(ds / "images" / f"{name}.jpg")
+    (ds / "labels" / "cap_20260831_131814_558.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+    (ds / "labels" / "cap_20260901_090000_001.txt").write_text("0 0.4 0.4 0.1 0.1\n")
+    _write_frame(ds / "images" / "cap_20260701_120000_shift_x10_y5.jpg")
+    (ds / "test.txt").write_text(
+        "./images/cap_20260831_131814_558.jpg\n"
+        "./images/cap_20260901_090000_001.jpg\n"
+        "./images/cap_20260901_091500.jpg\n"
+    )
+    (ds / "train.txt").write_text("./images/cap_20260701_120000_shift_x10_y5.jpg\n")
+    return ds
+
+
+def test_collect_split_frames_resolves_images_labels_and_ts(dataset):
+    refs = collect_split_frames("test", dataset)
+    assert [r.path.name for r in refs] == [
+        "cap_20260831_131814_558.jpg",
+        "cap_20260901_090000_001.jpg",
+        "cap_20260901_091500.jpg",
+    ]
+    assert refs[0].label_path is not None and refs[0].label_path.name == "cap_20260831_131814_558.txt"
+    assert refs[2].label_path is None  # no label file on disk
+    assert refs[0].ts_label == "test  2026-08-31 13:18:14"
+    assert refs[0].day == "test"
+
+
+def test_collect_split_frames_missing_listing_is_empty(dataset):
+    assert collect_split_frames("val", dataset) == []
+
+
+def test_resolve_frames_dispatch_and_unknown(captures, dataset):
+    assert len(resolve_frames("captures", captures_dir=captures)) == 4
+    assert len(resolve_frames("test", dataset_dir=dataset)) == 3
+    with pytest.raises(ValueError):
+        resolve_frames("bogus")
+
+
+def test_build_summary_gif_over_a_split(dataset):
+    gif, meta = build_summary_gif(frameset="test", dataset_dir=dataset, model=None)
+    assert meta["frameset"] == "test"
+    assert meta["source_frames"] == 3
+    assert _n_frames(gif) == 3
+
+
+def test_build_summary_gif_split_missing_raises(dataset):
+    with pytest.raises(SummaryEmpty):
+        build_summary_gif(frameset="val", dataset_dir=dataset, model=None)
+
+
+# --------------------------------------------------------------------------- #
 # server routes
 # --------------------------------------------------------------------------- #
 @pytest.fixture(autouse=True)
@@ -169,6 +230,8 @@ def _reset_server_state():
     server._model = None
     server._summary_cache = None
     server._viewer_cache = None
+    server._compare_cache = None
+    server._compare_models.clear()
     server._annot_lock = threading.Lock()
     yield
 
@@ -209,3 +272,20 @@ def test_summary_route_404_when_no_captures(client, tmp_path, monkeypatch):
     monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path / "empty"))
     assert client.get("/summary").status_code == 404
     assert client.get("/summary.json").status_code == 404
+
+
+def test_summary_route_set_param_selects_split(client, dataset, tmp_path, monkeypatch):
+    monkeypatch.setenv("COFFEECAM_DATASET_DIR", str(dataset))
+    monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path / "no-captures"))
+
+    meta = client.get("/summary.json?annotate=0&set=test").get_json()
+    assert meta["frameset"] == "test"
+    assert meta["source_frames"] == 3
+    assert meta["rendered_frames"] == 3
+
+    # unknown set falls back to captures -> 404 here (captures dir is empty)
+    assert client.get("/summary.json?annotate=0&set=bogus").status_code == 404
+
+    # the split is part of the cache key: a different frames= rebuilds cleanly
+    meta2 = client.get("/summary.json?annotate=0&set=test&frames=2").get_json()
+    assert meta2["frameset"] == "test" and meta2["rendered_frames"] == 2

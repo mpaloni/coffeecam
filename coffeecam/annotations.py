@@ -3,8 +3,11 @@
 Annotations live in ``captures/annotations.jsonl`` — one upsertable JSON row per
 frame, keyed by ``rel`` (the frame's path under the captures dir). Boxes are in
 natural pixel space ``[x1, y1, x2, y2]``; an empty ``boxes`` list is an explicit
-negative (frame seen, no pot). ``captures/`` itself is never mutated; a separate
-``dataset.promote`` step turns this file into a trainable ``dataset/``.
+negative (frame seen, no pot). A row with ``"skip": true`` is *watched* — seen
+and deliberately passed over; it drops out of the ``unlabeled`` queue but
+``dataset.promote`` ignores it entirely (neither a positive nor a background
+negative). ``captures/`` itself is never mutated; a separate ``dataset.promote``
+step turns this file into a trainable ``dataset/``.
 
 This module is pure and lock-free so it is unit-testable without threads — the
 caller (the Flask server) owns the lock that serializes writers.
@@ -12,8 +15,10 @@ caller (the Flask server) owns the lock that serializes writers.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,14 +34,18 @@ class Annotation:
     boxes: list[Box]  # x1, y1, x2, y2 in natural pixel space; [] = explicit negative
     labeled_at: str
     note: str = ""
+    skip: bool = False  # watched: seen and passed over; promote ignores it entirely
 
     def to_json(self) -> dict:
-        return {
+        row = {
             "rel": self.rel,
             "boxes": [list(b) for b in self.boxes],
             "labeled_at": self.labeled_at,
             "note": self.note,
         }
+        if self.skip:
+            row["skip"] = True
+        return row
 
 
 def _coerce_box(raw: object) -> Box:
@@ -110,7 +119,10 @@ def load(store: Path = DEFAULT_STORE) -> dict[str, Annotation]:
         note = row.get("note", "")
         if not isinstance(note, str):
             note = ""
-        out[rel] = Annotation(rel=rel, boxes=boxes, labeled_at=labeled_at, note=note)
+        skip = bool(row.get("skip", False))
+        out[rel] = Annotation(
+            rel=rel, boxes=boxes, labeled_at=labeled_at, note=note, skip=skip
+        )
     return out
 
 
@@ -166,3 +178,86 @@ def remove(rel: str, *, store: Path = DEFAULT_STORE) -> bool:
     del rows[rel]
     _dump(rows, store)
     return True
+
+
+def skip(rel: str, *, store: Path = DEFAULT_STORE) -> Annotation:
+    """Mark ``rel`` as *watched* (seen, deliberately not labeled).
+
+    Writes a ``skip`` row with no boxes; :func:`dataset.promote` drops it, and the
+    ``unlabeled`` queue no longer serves it. Overwrites any existing row for
+    ``rel`` — call :func:`remove` first to un-skip.
+    """
+    if not isinstance(rel, str) or not rel.strip():
+        raise ValueError("rel must be a non-empty string")
+    ann = Annotation(
+        rel=rel,
+        boxes=[],
+        labeled_at=datetime.now().isoformat(timespec="seconds"),
+        skip=True,
+    )
+    rows = load(store)
+    rows[rel] = ann
+    _dump(rows, store)
+    return ann
+
+
+def skip_many(rels: Iterable[str], *, store: Path = DEFAULT_STORE) -> int:
+    """Mark every ``rel`` in ``rels`` as watched in one rewrite.
+
+    Rows that already exist (labeled, negative, or already skipped) are left
+    untouched. Returns the number of new skip rows written.
+    """
+    rows = load(store)
+    now = datetime.now().isoformat(timespec="seconds")
+    added = 0
+    for rel in rels:
+        if not isinstance(rel, str) or not rel.strip() or rel in rows:
+            continue
+        rows[rel] = Annotation(rel=rel, boxes=[], labeled_at=now, skip=True)
+        added += 1
+    if added:
+        _dump(rows, store)
+    return added
+
+
+def _iter_captures(captures_dir: Path, *, start: str | None = None) -> list[str]:
+    """``rel`` paths of every ``*.jpg`` under ``captures_dir``, sorted.
+
+    ``start`` (``YYYY-MM-DD``) keeps only frames whose top-level day dir sorts
+    ``>= start`` — mirrors the ``/annotate`` queue's ``start`` filter.
+    """
+    captures_dir = Path(captures_dir)
+    out = []
+    for p in sorted(captures_dir.rglob("*.jpg")):
+        rel = p.relative_to(captures_dir).as_posix()
+        if start and rel.split("/", 1)[0] < start:
+            continue
+        out.append(rel)
+    return out
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="coffeecam annotation store tools")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser(
+        "skip-unlabeled",
+        help="mark every capture with no row as watched (clears the unlabeled backlog)",
+    )
+    s.add_argument("--captures-dir", type=Path, default=Path("captures"))
+    s.add_argument("--store", type=Path, default=None)
+    s.add_argument("--start", default=None, help="only frames on/after this YYYY-MM-DD")
+    s.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    store = args.store or DEFAULT_STORE
+    have = load(store)
+    rels = [r for r in _iter_captures(args.captures_dir, start=args.start) if r not in have]
+    if args.dry_run:
+        print(f"[dry-run] would mark {len(rels)} frame(s) watched")
+        return
+    n = skip_many(rels, store=store)
+    print(f"marked {n} frame(s) watched")
+
+
+if __name__ == "__main__":
+    main()

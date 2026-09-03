@@ -10,9 +10,9 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-# The detector trained at imgsz 320 (runs/detect/runs/train-nomosaic-2); predict
-# with the same size or confidence drops.
-DEFAULT_IMGSZ = 320
+# Predict at the size the live checkpoint trained at or recall drops (the pot box
+# is small). trackB-v1 trained at 640; earlier screenshot-era runs used 320.
+DEFAULT_IMGSZ = 640
 DEFAULT_CONF = 0.25
 CHECKPOINT_FILE = Path("models/CHECKPOINT")
 

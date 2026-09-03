@@ -19,6 +19,8 @@ def _reset_server_state():
     server._model = None
     server._summary_cache = None
     server._viewer_cache = None
+    server._compare_cache = None
+    server._compare_models.clear()
     server._annot_lock = threading.Lock()
     yield
 
@@ -151,13 +153,13 @@ def test_queue_empty_when_no_captures_dir(client, tmp_path, monkeypatch):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["frames"] == []
-    assert body["counts"] == {"total": 0, "labeled": 0, "remaining": 0}
+    assert body["counts"] == {"total": 0, "labeled": 0, "watched": 0, "remaining": 0}
     assert client.get("/annotate/frame/0.jpg").status_code == 404
 
 
 def test_queue_lists_unlabeled_then_drops_labeled(client, captures_env):
     body = client.get("/annotate/queue.json").get_json()
-    assert body["counts"] == {"total": 3, "labeled": 0, "remaining": 3}
+    assert body["counts"] == {"total": 3, "labeled": 0, "watched": 0, "remaining": 3}
     assert [f["rel"] for f in body["frames"]] == [
         "2026-08-31/070008_549.jpg",
         "2026-08-31/180042_126.jpg",
@@ -172,7 +174,7 @@ def test_queue_lists_unlabeled_then_drops_labeled(client, captures_env):
     assert saved["labeled_at"]
 
     body = client.get("/annotate/queue.json").get_json()
-    assert body["counts"] == {"total": 3, "labeled": 1, "remaining": 2}
+    assert body["counts"] == {"total": 3, "labeled": 1, "watched": 0, "remaining": 2}
     assert "2026-08-31/180042_126.jpg" not in [f["rel"] for f in body["frames"]]
 
     labeled = client.get("/annotate/queue.json?filter=labeled").get_json()
@@ -244,6 +246,47 @@ def test_suggest_503_without_model_then_returns_box(client, captures_env):
 
     server._model = _FakeModel(None)
     assert client.get("/annotate/suggest/0.json").get_json()["source"] == "none"
+
+
+def test_skip_drops_frame_from_unlabeled_and_into_watched(client, captures_env):
+    r = client.post("/annotate/skip", json={"rel": "2026-08-31/070008_549.jpg"})
+    assert r.status_code == 200 and r.get_json()["skip"] is True
+
+    body = client.get("/annotate/queue.json").get_json()
+    assert body["counts"] == {"total": 3, "labeled": 0, "watched": 1, "remaining": 2}
+    assert "2026-08-31/070008_549.jpg" not in [f["rel"] for f in body["frames"]]
+
+    watched = client.get("/annotate/queue.json?filter=watched").get_json()
+    assert [f["rel"] for f in watched["frames"]] == ["2026-08-31/070008_549.jpg"]
+    assert watched["frames"][0]["skip"] is True
+
+    # un-skip via the existing delete route
+    client.post("/annotate/label/delete", json={"rel": "2026-08-31/070008_549.jpg"})
+    assert client.get("/annotate/queue.json").get_json()["counts"]["remaining"] == 3
+
+
+def test_skip_missing_rel_is_400(client, captures_env):
+    assert client.post("/annotate/skip", json={}).status_code == 400
+
+
+def test_skip_queue_marks_all_unlabeled(client, captures_env):
+    client.post("/annotate/label", json={"rel": "2026-08-31/180042_126.jpg",
+                                         "boxes": [[10, 20, 100, 120]]})
+    r = client.post("/annotate/skip-queue")
+    assert r.status_code == 200 and r.get_json()["skipped"] == 2  # the other two
+
+    body = client.get("/annotate/queue.json").get_json()
+    assert body["counts"] == {"total": 3, "labeled": 1, "watched": 2, "remaining": 0}
+    assert body["frames"] == []
+    # honours ?start= — nothing older than the cutoff is touched a second time
+    assert client.post("/annotate/skip-queue").get_json()["skipped"] == 0
+
+
+def test_skip_queue_respects_start(client, captures_env):
+    r = client.post("/annotate/skip-queue?start=2026-09-01")
+    assert r.get_json()["skipped"] == 1  # only the 2026-09-01 frame
+    body = client.get("/annotate/queue.json").get_json()
+    assert body["counts"]["watched"] == 1 and body["counts"]["remaining"] == 2
 
 
 def test_promote_route_needs_confirm(client, captures_env, tmp_path, monkeypatch):
