@@ -84,9 +84,16 @@ Add a labeling endpoint mirroring `/annotate` (`docs/annotate-endpoint-plan.md`)
   queue (need the box to crop).
 - CLI fallback to bulk-label / inspect, like `annotations.py skip-unlabeled`.
 
-### Class set — start coarse
+### Class set
 
-Ship **3 classes**: `empty` / `partial` / `full` (drop to binary `empty` /
+> **Decision (2026-09-03): 5-level, not 3.** The `/fullness` endpoint labels on a
+> 1-5 scale — `empty` / `low` / `half` / `high` / `full`, reusing
+> `coffeecam.fullness.LEVELS` (the enum `FullnessResult` already returns). The
+> "start 3-way" plan below is superseded; kept for the rationale. If `low`/`high`
+> stay too sparse to learn after batch 1, collapse adjacent levels at
+> `fullness_dataset` time rather than re-labelling.
+
+~~Ship **3 classes**: `empty` / `partial` / `full`~~ (drop to binary `empty` /
 `has_coffee` if `partial` stays too rare to learn). The aspirational 5-level
 `LEVELS` needs far more data than we'll have soon. `absent` (carafe removed) is a
 detector concern — if the detector fires anyway, fold those into their own class

@@ -378,4 +378,4 @@ def test_fullness_skip_queue(client, fullness_env):
     body = client.get("/fullness/queue.json").get_json()
     assert body["frames"] == []
     assert body["counts"] == {"total": 2, "labeled": 1, "watched": 1, "remaining": 0,
-                              "empty": 1, "partial": 0, "full": 0}
+                              "empty": 1, "low": 0, "half": 0, "high": 0, "full": 0}

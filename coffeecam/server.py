@@ -855,9 +855,11 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
  <div class=col>
   <div class=cap id=hdr>loading&hellip;</div>
   <div class=cap id=count></div>
-  <button class=lvl id=lvl-empty>empty &nbsp;<span class=k>e</span></button>
-  <button class=lvl id=lvl-partial>partial &nbsp;<span class=k>p</span></button>
-  <button class=lvl id=lvl-full>full &nbsp;<span class=k>f</span></button>
+  <button class=lvl id=lvl-1>1 &mdash; empty &nbsp;<span class=k>1</span></button>
+  <button class=lvl id=lvl-2>2 &mdash; low &nbsp;<span class=k>2</span></button>
+  <button class=lvl id=lvl-3>3 &mdash; half &nbsp;<span class=k>3</span></button>
+  <button class=lvl id=lvl-4>4 &mdash; high &nbsp;<span class=k>4</span></button>
+  <button class=lvl id=lvl-5>5 &mdash; full &nbsp;<span class=k>5</span></button>
   <button id=skip>skip / watched &nbsp;<span class=k>s</span></button>
   <button id=del>delete saved label &nbsp;<span class=k>&#9003;</span></button>
   <div class=row><button id=prev>&larr; prev</button><button id=next>next &rarr;</button></div>
@@ -877,7 +879,9 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
 const params = new URLSearchParams(location.search);
 const $ = id => document.getElementById(id);
 let queue = [], counts = {}, pos = 0;
-const LEVELS = ['empty', 'partial', 'full'];
+// 1-5 scale; index 0 unused so n maps straight to LEVELS[n].
+const LEVELS = [null, 'empty', 'low', 'half', 'high', 'full'];
+const DOT = ' \\u00b7 ';
 
 const qs = () => {
   const p = new URLSearchParams();
@@ -902,11 +906,16 @@ function show() {
   if (pos >= queue.length) return showDone();
   $('imgs').style.display = '';
   const f = queue[pos];
+  const lvlName = f.level ? (LEVELS.indexOf(f.level) + ' \\u2014 ' + f.level) : '';
   $('hdr').innerHTML = '<b>' + f.rel + '</b>' +
-    (f.level ? ' &middot; <span style="color:#4caf50">' + f.level + '</span>' : '') +
-    (f.skip ? ' &middot; <span style="color:#e0a020">watched</span>' : '');
-  $('count').textContent = counts.labeled + ' / ' + counts.total + ' labeled &middot; ' +
-    (counts.watched || 0) + ' watched &middot; ' + (queue.length - pos) + ' in queue';
+    (f.level ? DOT + '<span style="color:#4caf50">' + lvlName + '</span>' : '') +
+    (f.skip ? DOT + '<span style="color:#e0a020">watched</span>' : '');
+  $('count').innerHTML =
+    counts.labeled + ' / ' + counts.total + ' labeled<br>' +
+    (counts.watched || 0) + ' watched<br>' +
+    (queue.length - pos) + ' in queue';
+  // Blank first so a stale crop never lingers under the next frame's label.
+  $('crop').removeAttribute('src'); $('frame').removeAttribute('src');
   $('crop').src = '/fullness/crop/' + f.i + '.jpg?' + qs();
   $('frame').src = '/fullness/frame/' + f.i + '.jpg?' + qs();
 }
@@ -915,11 +924,13 @@ function showDone() {
   $('hdr').innerHTML = '<b>queue done</b>';
   $('count').innerHTML = '<div class=done>Labeled ' + counts.labeled + ' / ' +
     counts.total + ' box-positive frames.<br>' +
-    'Class counts: ' + LEVELS.map(l => l + ' ' + (counts[l] || 0)).join(' &middot; ') +
+    'Class counts: ' + LEVELS.slice(1).map(
+      (l, i) => (i + 1) + '/' + l + ' ' + (counts[l] || 0)).join(' &middot; ') +
     '<br>Next: <code>python -m coffeecam.fullness_dataset</code></div>';
 }
-async function label(level) {
+async function label(n) {
   const f = queue[pos]; if (!f) return;
+  const level = LEVELS[n];
   const { ok, data } = await post('/fullness/label', { rel: f.rel, level });
   if (!ok) { $('count').textContent = 'save failed: ' + (data.error || '?'); return; }
   if (!f.level) counts.labeled++;
@@ -948,9 +959,7 @@ async function skipRest() {
   loadQueue();
 }
 
-$('lvl-empty').onclick = () => label('empty');
-$('lvl-partial').onclick = () => label('partial');
-$('lvl-full').onclick = () => label('full');
+for (let n = 1; n <= 5; n++) $('lvl-' + n).onclick = () => label(n);
 $('skip').onclick = skipFrame;
 $('del').onclick = delSaved;
 $('prev').onclick = () => { if (pos > 0) { pos--; show(); } };
@@ -962,9 +971,7 @@ $('stride').onchange = loadQueue;
 
 addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
-  if (e.key === 'e') label('empty');
-  else if (e.key === 'p') label('partial');
-  else if (e.key === 'f') label('full');
+  if (e.key >= '1' && e.key <= '5') label(+e.key);
   else if (e.key === 's') skipFrame();
   else if (e.key === 'Backspace') { e.preventDefault(); delSaved(); }
   else if (e.key === 'ArrowLeft') $('prev').onclick();

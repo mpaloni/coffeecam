@@ -3,7 +3,8 @@
 Fill-level labels live in ``captures/fullness.jsonl`` — one upsertable JSON row
 per frame, keyed by ``rel`` (the frame's path under the captures dir):
 ``{"rel": ..., "level": "empty", "labeled_at": ...}``. ``level`` is one of
-:data:`LEVELS`. A row with ``"skip": true`` is *watched* — the carafe is absent,
+:data:`LEVELS` (``empty``/``low``/``half``/``high``/``full``, shown in the UI as
+a 1-5 scale). A row with ``"skip": true`` is *watched* — the carafe is absent,
 mid-pour, or otherwise unlabelable — and ``level`` is empty; ``fullness_dataset``
 drops it. ``captures/`` itself is never mutated.
 
@@ -27,10 +28,13 @@ from datetime import datetime
 from pathlib import Path
 
 from coffeecam import annotations
+from coffeecam.fullness import LEVELS  # ("empty", "low", "half", "high", "full")
 
-# Start coarse (see docs/fullness-plan.md). Drop to binary empty / has_coffee if
-# ``partial`` stays too rare to learn after the first labelling batch.
-LEVELS = ("empty", "partial", "full")
+# The /fullness UI presents these as a 1-5 scale (1 = empty .. 5 = full); the
+# store keeps the names so fullness_dataset can build an ImageFolder tree from
+# them directly. Same enum as coffeecam.fullness.FullnessResult.
+__all__ = ["LEVELS", "FullnessLabel", "load", "upsert", "remove", "skip",
+           "skip_many", "counts", "positive_box_rels"]
 
 DEFAULT_STORE = Path("captures/fullness.jsonl")
 

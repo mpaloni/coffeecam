@@ -23,10 +23,10 @@ def test_upsert_and_load_roundtrip(store):
 
 def test_upsert_replaces_existing_row(store):
     fl.upsert("a/1.jpg", "empty", store=store)
-    fl.upsert("a/1.jpg", "partial", store=store)
+    fl.upsert("a/1.jpg", "half", store=store)
     rows = fl.load(store)
     assert len(rows) == 1
-    assert rows["a/1.jpg"].level == "partial"
+    assert rows["a/1.jpg"].level == "half"
     # one physical line per rel
     assert len(store.read_text().strip().splitlines()) == 1
 
@@ -89,7 +89,7 @@ def test_counts(store):
     fl.upsert("a/3.jpg", "full", store=store)
     fl.skip("a/4.jpg", store=store)
     c = fl.counts(store)
-    assert c["empty"] == 2 and c["full"] == 1 and c["partial"] == 0
+    assert c["empty"] == 2 and c["full"] == 1 and c["half"] == 0
     assert c["watched"] == 1 and c["total"] == 4
 
 
