@@ -387,8 +387,12 @@ _ARTIFACT_SUFFIXES = _ARTIFACT_IMG | {".json", ".txt", ".csv", ".md", ".log"}
 
 def _artifacts_dir() -> Path:
     """Dir served by /artifacts. Default `scratchpad/` (gitignored, where compare
-    / summary outputs already land); override with COFFEECAM_ARTIFACTS_DIR."""
-    return Path(os.environ.get("COFFEECAM_ARTIFACTS_DIR", "scratchpad"))
+    / summary outputs already land); override with COFFEECAM_ARTIFACTS_DIR.
+
+    Resolved to an absolute path: Flask's `send_from_directory` joins a *relative*
+    directory onto the package root (`coffeecam/`), not the cwd, which would miss
+    the repo-root `scratchpad/`."""
+    return Path(os.environ.get("COFFEECAM_ARTIFACTS_DIR", "scratchpad")).resolve()
 
 
 _ARTIFACTS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam artifacts</title>
