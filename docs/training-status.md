@@ -3,7 +3,8 @@
 Living status of the coffee-pot detector: what's live, what's training, what to do next.
 How the labeling → dataset → train → compare loop works is in `dataset-and-training.md`.
 
-Last updated: 2026-09-03 (fullness-v1 trained).
+Last updated: 2026-09-03 (fullness-v1 trained; detector "Current state" reconciled — work
+is on `main`, 217 tests passing).
 
 ---
 
@@ -29,8 +30,10 @@ Last updated: 2026-09-03 (fullness-v1 trained).
   negatives; val 40 / test 43, real-only). Built at ~214 positives — a fresh rebuild at 243
   would be slightly bigger; do that before the *next* train.
 - **Compare artifact:** `scratchpad/compare/compare-trackB-test.gif` (+ `.json`).
-- **Uncommitted:** everything above is on branch `feat/annotate-endpoint` — no commit, no PR.
-- Test suite: **152 passing** (`-p no:randomly`; one `test_augment_shift` case is flaky
+- **Committed & merged to `main`:** the `feat/annotate-endpoint` work (`58f3624`), the
+  `trackB-v1` weights commit (`35b51b0`), and all fullness steps (1–5 + compare/artifacts,
+  through `97ae2c6`). No open PR — landed directly on `main`.
+- Test suite: **217 passing** (`-p no:randomly`; one `test_augment_shift` case is flaky
   under random ordering — pre-existing test-isolation pollution, passes in isolation).
 
 ---
@@ -51,11 +54,10 @@ Last updated: 2026-09-03 (fullness-v1 trained).
    mAP50-95 0.438 on 43 held-out frames and keep the "bottleneck is ~243 real positives,
    not augmentation" point. *(These edits pre-date the split into `dataset-and-training.md`;
    reconcile if that doc now owns the same material.)*
-6. ⏳ **Commit `feat/annotate-endpoint` + open the PR.** Carries: `/annotate` +
+6. ✅ **Landed on `main`** (no PR — committed directly). Carried: `/annotate` +
    `dataset.promote`, the bundled summary/viewer work, `augment_shift` rotate/occlude/
    balanced, `compare.py` + `/compare` + `/summary?set=`, the skip/watched state, the Track B
-   dataset, trackB-v1 promotion (`CHECKPOINT` + `DEFAULT_IMGSZ`), and these docs. Consider
-   splitting summary/viewer and compare from annotate for review.
+   dataset, trackB-v1 promotion (`CHECKPOINT` + `DEFAULT_IMGSZ`), and these docs.
 
 7. Then consider dropping the `normalize` (black-pad) pipeline stage and tightening
    `pipeline.DEFAULT_CONF` (`TODO.md` follow-ups).

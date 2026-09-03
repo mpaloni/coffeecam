@@ -3,7 +3,9 @@
 **State as of 2026-09-03.** The full plan (`docs/fullness-plan.md`) is **built and
 shipped** — steps 1–5 done, `fullness-v1` trained and live on `coffeecam-web`.
 What remains is step 6: more data (distinct brew events, esp. a real `full`),
-then retrain. `main` is at `c25505e`, pushed to Gitea.
+then retrain. `main` is at `97ae2c6`, pushed to Gitea. Labels have grown since
+(262 labelled / 460 boxes) but no new *distinct* brew events, so no retrain — see
+"Data reality".
 
 ## TL;DR for next session
 
@@ -70,14 +72,16 @@ then retrain. `main` is at `c25505e`, pushed to Gitea.
    *distinct* brew events (not frames — heartbeat dupes don't add signal). Then
    label via `/fullness`, `python -m coffeecam.fullness_train`, compare.
 2. **Back up the labels.** `captures/` is fully gitignored, so
-   `captures/fullness.jsonl` (238 labels) + `captures/annotations.jsonl` (373
+   `captures/fullness.jsonl` (262 labels) + `captures/annotations.jsonl` (460
    boxes) are unbacked-up manual work. Add `captures/*` + `!captures/fullness.jsonl`
    + `!captures/annotations.jsonl` to `.gitignore` (blanket `captures/` can't be
    un-ignored file-by-file — needs the `/*` form). Left undone pending a nod:
    it changes repo-wide tracking.
-3. `docs/training-status.md` "Current state" block still describes the
-   pre-fullness detector state (152 passing, `feat/annotate-endpoint` branch) —
-   stale, reconcile when next touching detector training.
+3. ✅ `docs/training-status.md` "Current state" block reconciled (2026-09-03) —
+   now says the detector + fullness work is on `main`, 217 tests passing, no open
+   PR. The detector annotation breakdown in that block (457 rows / 243 positive)
+   is still the pre-relabel snapshot; the store is now 797 frames / 460 positive
+   boxes — refresh it next time detector training is touched.
 4. Optional: `detect.resolve_weights()` fallback to `models/*.pt` so a fresh
    clone runs the detector without `runs/` (unrelated to fullness).
 
@@ -99,10 +103,14 @@ wrong when that box was drawn sloppily.
 
 ## Data reality
 
-- 373 frames with a hand-drawn `coffee_pot` box; box size stable (`w` 83±10,
-  `h` 92±8), position mostly stable (median `291,113→373,205`), nudged tail.
-- Fullness labels (2026-09-03 batch): 238 labelled + 135 watched, all 373
-  resolved. `empty 48 · low 71 · half 47 · high 27 · full 5 · absent 40`.
+- 460 frames with a hand-drawn `coffee_pot` box (was 373 at first handoff); box
+  size stable (`w` 83±10, `h` 92±8), position mostly stable (median
+  `291,113→373,205`), nudged tail.
+- Fullness labels (2026-09-03, updated): 262 labelled + 198 watched, all 460
+  positive-box frames resolved. `empty 58 · low 76 · half 48 · high 33 · full 5
+  · absent 42`. **`full` still only 5** — no new distinct brew events captured
+  yet, so fullness-v1 is unchanged (`runs/classify/fullness-v1`, weights from
+  13:29). Retrain is still gated on step 1 below.
 - Non-empty frames cluster into a handful of brew events with many near-duplicate
   heartbeat frames — count *distinct brew events*, not frames.
 
