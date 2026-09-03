@@ -18,3 +18,5 @@ scratchpad/
 
 # committed model weights (exception to *.pt above)
 !models/*.pt
+# ...but not this one — local-only, superseded by best-trackB-v1.pt
+models/best-balanced-v1.pt
