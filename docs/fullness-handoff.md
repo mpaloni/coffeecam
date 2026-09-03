@@ -102,7 +102,9 @@ replaced. Full design: [`docs/fullness-plan.md`](fullness-plan.md) — read it f
 - Does the privacy crop (`capture.DEFAULT_INSETS`) clip the carafe's right edge?
   `TODO.md` flags it — check before locking `DEFAULT_POT_BOX`.
 - `partial` learnable or binary from the start? Decide after batch 1's class counts.
-- Carafe-removed frames: own class or out of scope?
+- ~~Carafe-removed frames: own class or out of scope?~~ **Decided: own label
+  `absent`** (keyed `0` in the UI, "no pot"). Stored like a level, not a `skip`;
+  `fullness_dataset` decides keep-as-class vs drop.
 - Optional cleanup: wire `detect.resolve_weights()` to fall back to `models/*.pt`
   so a fresh clone can run the detector without `runs/`.
 

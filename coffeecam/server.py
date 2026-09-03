@@ -860,6 +860,7 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
   <button class=lvl id=lvl-3>3 &mdash; half &nbsp;<span class=k>3</span></button>
   <button class=lvl id=lvl-4>4 &mdash; high &nbsp;<span class=k>4</span></button>
   <button class=lvl id=lvl-5>5 &mdash; full &nbsp;<span class=k>5</span></button>
+  <button class=lvl id=lvl-absent>0 &mdash; no pot &nbsp;<span class=k>0</span></button>
   <button id=skip>skip / watched &nbsp;<span class=k>s</span></button>
   <button id=del>delete saved label &nbsp;<span class=k>&#9003;</span></button>
   <div class=row><button id=prev>&larr; prev</button><button id=next>next &rarr;</button></div>
@@ -879,8 +880,10 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
 const params = new URLSearchParams(location.search);
 const $ = id => document.getElementById(id);
 let queue = [], counts = {}, pos = 0;
-// 1-5 scale; index 0 unused so n maps straight to LEVELS[n].
+// 1-5 scale; index 0 unused so n maps straight to LEVELS[n]. 'absent' (no pot in
+// frame) is a separate label, keyed 0, not part of the scale.
 const LEVELS = [null, 'empty', 'low', 'half', 'high', 'full'];
+const ABSENT = 'absent';
 const DOT = ' \\u00b7 ';
 
 const qs = () => {
@@ -906,7 +909,8 @@ function show() {
   if (pos >= queue.length) return showDone();
   $('imgs').style.display = '';
   const f = queue[pos];
-  const lvlName = f.level ? (LEVELS.indexOf(f.level) + ' \\u2014 ' + f.level) : '';
+  const n = LEVELS.indexOf(f.level);
+  const lvlName = !f.level ? '' : (n > 0 ? n + ' \\u2014 ' + f.level : f.level);
   $('hdr').innerHTML = '<b>' + f.rel + '</b>' +
     (f.level ? DOT + '<span style="color:#4caf50">' + lvlName + '</span>' : '') +
     (f.skip ? DOT + '<span style="color:#e0a020">watched</span>' : '');
@@ -926,11 +930,11 @@ function showDone() {
     counts.total + ' box-positive frames.<br>' +
     'Class counts: ' + LEVELS.slice(1).map(
       (l, i) => (i + 1) + '/' + l + ' ' + (counts[l] || 0)).join(' &middot; ') +
+    ' &middot; 0/' + ABSENT + ' ' + (counts[ABSENT] || 0) +
     '<br>Next: <code>python -m coffeecam.fullness_dataset</code></div>';
 }
-async function label(n) {
+async function label(level) {
   const f = queue[pos]; if (!f) return;
-  const level = LEVELS[n];
   const { ok, data } = await post('/fullness/label', { rel: f.rel, level });
   if (!ok) { $('count').textContent = 'save failed: ' + (data.error || '?'); return; }
   if (!f.level) counts.labeled++;
@@ -959,7 +963,8 @@ async function skipRest() {
   loadQueue();
 }
 
-for (let n = 1; n <= 5; n++) $('lvl-' + n).onclick = () => label(n);
+for (let n = 1; n <= 5; n++) $('lvl-' + n).onclick = () => label(LEVELS[n]);
+$('lvl-absent').onclick = () => label(ABSENT);
 $('skip').onclick = skipFrame;
 $('del').onclick = delSaved;
 $('prev').onclick = () => { if (pos > 0) { pos--; show(); } };
@@ -971,7 +976,8 @@ $('stride').onchange = loadQueue;
 
 addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
-  if (e.key >= '1' && e.key <= '5') label(+e.key);
+  if (e.key >= '1' && e.key <= '5') label(LEVELS[+e.key]);
+  else if (e.key === '0') label(ABSENT);
   else if (e.key === 's') skipFrame();
   else if (e.key === 'Backspace') { e.preventDefault(); delSaved(); }
   else if (e.key === 'ArrowLeft') $('prev').onclick();
@@ -1384,7 +1390,7 @@ def create_app(start_worker: bool = True) -> Flask:
         store_counts = fullness_labels.counts(_fullness_store_path())
         # queue counts (total/labeled/watched) are over box-positive frames and
         # stay authoritative; fold in only the per-level breakdown.
-        for lvl in fullness_labels.LEVELS:
+        for lvl in fullness_labels.LABELS:
             counts[lvl] = store_counts.get(lvl, 0)
         return jsonify({"frames": frames, "counts": counts})
 

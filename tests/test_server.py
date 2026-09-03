@@ -350,6 +350,15 @@ def test_fullness_label_rejects_bad_level(client, fullness_env):
     assert r.status_code == 400
 
 
+def test_fullness_label_absent(client, fullness_env):
+    r = client.post("/fullness/label", json={"rel": "2026-08-31/070008_549.jpg", "level": "absent"})
+    assert r.status_code == 200 and r.get_json()["level"] == "absent"
+    body = client.get("/fullness/queue.json").get_json()
+    assert body["counts"]["absent"] == 1
+    assert body["counts"]["labeled"] == 1
+    assert [f["rel"] for f in body["frames"]] == ["2026-09-01/101558_558.jpg"]
+
+
 def test_fullness_crop_and_frame_jpeg(client, fullness_env):
     crop = client.get("/fullness/crop/0.jpg")
     assert crop.status_code == 200 and crop.headers["Content-Type"] == "image/jpeg"
@@ -378,4 +387,5 @@ def test_fullness_skip_queue(client, fullness_env):
     body = client.get("/fullness/queue.json").get_json()
     assert body["frames"] == []
     assert body["counts"] == {"total": 2, "labeled": 1, "watched": 1, "remaining": 0,
-                              "empty": 1, "low": 0, "half": 0, "high": 0, "full": 0}
+                              "empty": 1, "low": 0, "half": 0, "high": 0, "full": 0,
+                              "absent": 0}

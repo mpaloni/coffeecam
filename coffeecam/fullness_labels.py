@@ -30,11 +30,20 @@ from pathlib import Path
 from coffeecam import annotations
 from coffeecam.fullness import LEVELS  # ("empty", "low", "half", "high", "full")
 
-# The /fullness UI presents these as a 1-5 scale (1 = empty .. 5 = full); the
+# The /fullness UI presents LEVELS as a 1-5 scale (1 = empty .. 5 = full); the
 # store keeps the names so fullness_dataset can build an ImageFolder tree from
 # them directly. Same enum as coffeecam.fullness.FullnessResult.
-__all__ = ["LEVELS", "FullnessLabel", "load", "upsert", "remove", "skip",
-           "skip_many", "counts", "positive_box_rels"]
+#
+# ABSENT is a sixth label, not part of the scale: the carafe is not on the
+# warmer in this frame (removed / mid-pour long enough to be "gone"). It's a real
+# class worth training on, distinct from a `skip` row (glare, blur, genuinely
+# unlabelable). fullness_dataset decides whether to keep it as its own class or
+# drop it.
+ABSENT = "absent"
+LABELS = (*LEVELS, ABSENT)
+
+__all__ = ["LEVELS", "ABSENT", "LABELS", "FullnessLabel", "load", "upsert",
+           "remove", "skip", "skip_many", "counts", "positive_box_rels"]
 
 DEFAULT_STORE = Path("captures/fullness.jsonl")
 
@@ -57,8 +66,8 @@ class FullnessLabel:
 
 
 def _valid_level(level: object) -> str:
-    if not isinstance(level, str) or level not in LEVELS:
-        raise ValueError(f"level must be one of {LEVELS}, got {level!r}")
+    if not isinstance(level, str) or level not in LABELS:
+        raise ValueError(f"level must be one of {LABELS}, got {level!r}")
     return level
 
 
@@ -129,7 +138,7 @@ def upsert(
 ) -> FullnessLabel:
     """Insert or replace the row for ``rel``. Returns the saved label.
 
-    Raises ``ValueError`` on a bad ``rel`` or a ``level`` outside :data:`LEVELS`.
+    Raises ``ValueError`` on a bad ``rel`` or a ``level`` outside :data:`LABELS`.
     """
     if not isinstance(rel, str) or not rel.strip():
         raise ValueError("rel must be a non-empty string")
@@ -202,9 +211,9 @@ def positive_box_rels(annot_store: Path) -> list[str]:
 
 
 def counts(store: Path = DEFAULT_STORE) -> dict[str, int]:
-    """``{level: n}`` for each of :data:`LEVELS` plus ``watched`` and ``total``."""
+    """``{level: n}`` for each of :data:`LABELS` plus ``watched`` and ``total``."""
     rows = load(store)
-    out = {lvl: 0 for lvl in LEVELS}
+    out = {lvl: 0 for lvl in LABELS}
     out["watched"] = 0
     for label in rows.values():
         if label.skip:
@@ -235,7 +244,7 @@ def _main(argv: list[str] | None = None) -> None:
 
     if args.cmd == "stats":
         c = counts(store)
-        for lvl in (*LEVELS, "watched", "total"):
+        for lvl in (*LABELS, "watched", "total"):
             print(f"{lvl:>8}: {c[lvl]}")
         return
 

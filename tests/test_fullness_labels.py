@@ -38,6 +38,14 @@ def test_upsert_rejects_bad_level(store):
         fl.upsert("a/1.jpg", "", store=store)
 
 
+def test_absent_is_a_valid_label_distinct_from_skip(store):
+    fl.upsert("a/1.jpg", "absent", store=store)
+    row = fl.load(store)["a/1.jpg"]
+    assert row.level == "absent" and row.skip is False
+    c = fl.counts(store)
+    assert c["absent"] == 1 and c["watched"] == 0 and c["total"] == 1
+
+
 def test_upsert_rejects_empty_rel(store):
     with pytest.raises(ValueError):
         fl.upsert("  ", "empty", store=store)
