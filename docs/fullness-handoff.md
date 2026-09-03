@@ -46,15 +46,19 @@ The `/fullness` crop is `prepare_crop(frame, GT_box)` where `GT_box` is the
 **hand-drawn** box from `/annotate`, not the live detector's output — so the crop
 is only wrong when that box was drawn sloppily.
 
-- **Label from whichever image reads clearer.** Normally the crop; fall back to
-  the full frame (shown alongside) when the crop is tight, clipped, or ambiguous.
-  A correct level on an imperfect crop is still good signal — train-time box
-  jitter (step 4) is built to cover exactly that sloppiness.
-- **If the crop is bad because the GT box is bad** (way off, includes the mug,
-  clips the carafe): the clean fix is to re-draw it in `/annotate` (regenerates
-  the crop), then label. Optional polish, not required for a first batch.
-- **`skip` / watched** only when *neither* image lets you judge the level (glare
-  on the glass, motion blur, too dark).
+- **Crop loose / clipped but still on the carafe** → label from whichever image
+  reads clearer (the full frame is shown alongside). A correct level on a
+  slightly-off crop is still good signal — train-time box jitter (step 4) is
+  built to cover exactly that sloppiness.
+- **Crop on the wrong thing entirely** (wall, mug, bare counter — a mis-drawn or
+  stale GT box): **do not label it.** The crop *is* the training input, so a
+  level here would teach the model "this wall patch = half full". Either re-draw
+  the box in `/annotate` (regenerates the crop) then label, or `skip` it to keep
+  the frame out of the dataset. This is not `absent` — that means the carafe is
+  genuinely off the warmer, not that the box missed it.
+- **`skip` / watched** when *neither* image lets you judge the level (glare on
+  the glass, motion blur, too dark), or for a wrong-box frame you don't want to
+  re-annotate now.
 - **`w` / `absent`** when the carafe isn't on the warmer at all.
 
 ## Not versioned (know this before relying on it)

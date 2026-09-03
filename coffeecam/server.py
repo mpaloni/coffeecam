@@ -864,9 +864,10 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
   <button id=skip>skip / watched &nbsp;<span class=k>s</span></button>
   <button id=del>delete saved label &nbsp;<span class=k>&#9003;</span></button>
   <div class=cap muted style="line-height:1.5">
-   Judge the fill level from whichever image is clearer &mdash; use the full
-   frame if the crop is off. <b>skip</b> only when neither image lets you tell.
-   <b>no pot</b> = carafe not on the warmer.</div>
+   Crop loose but on the carafe &rarr; judge from whichever image is clearer.
+   Crop on the wrong thing (wall, mug) &rarr; fix the box in <a href="/annotate">/annotate</a>
+   or <b>skip</b> &mdash; don't label it. <b>skip</b> also when neither image is
+   legible. <b>no pot</b> = carafe genuinely off the warmer.</div>
   <div class=row><button id=prev>&larr; prev</button><button id=next>next &rarr;</button></div>
   <button id=skiprest>skip rest of queue</button>
   <button id=reload>reload queue</button>
