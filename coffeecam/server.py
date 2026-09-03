@@ -5,9 +5,8 @@
 A daemon thread fetches a snapshot every COFFEECAM_REFRESH_SECS, runs
 `pipeline.run_pipeline`, and stashes the rendered JPEGs; the routes just serve the
 last result, so browser refreshes and multiple viewers cost nothing. The classify
-stage is the brightness-heuristic placeholder — the point of the per-stage
-endpoints is to have the detector/crop visible now and slot a real classifier in
-later.
+stage runs `fullness.default_estimator()` (`ModelFullness` when
+`models/FULLNESS_CHECKPOINT` resolves, else `NullFullness`).
 
 Env:
   COFFEECAM_SOURCE_URL   camera base URL           (default http://192.168.50.10:8888)
@@ -19,6 +18,11 @@ Env:
   COFFEECAM_SUMMARY_TTL  seconds to cache /summary (default 300)
   COFFEECAM_CAPTURES_DIR  frame dir for /summary + /annotate (default captures/)
   COFFEECAM_DATASET_DIR   output dir for POST /annotate/promote (default dataset/)
+  COFFEECAM_ARTIFACTS_DIR  dir served read-only at /artifacts (default scratchpad/)
+
+/artifacts is a read-only gallery of COFFEECAM_ARTIFACTS_DIR (images + text/json/
+log) — drop a file in, refresh, no restart. /fullness/compare.gif renders
+fullness-v1 vs the brightness heuristic over the held-out test split.
 
 /summary[.gif] renders every captured frame so far into one animated GIF, each
 frame annotated with the current detector's result box (query params: set,
@@ -48,7 +52,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from coffeecam.capture import DEFAULT_SOURCE, fetch_snapshot
 from coffeecam.pipeline import DEFAULT_CONF, PipelineResult, run_pipeline
@@ -373,6 +377,38 @@ def _build_compare(*, pairs, frameset, max_frames, ms, scale, conf, force):
         meta = {**stats, "set": frameset, "specs": {n: (s or "models/CHECKPOINT") for n, s in pairs}}
         _compare_cache = {"sig": sig, "gif": gif, "meta": meta, "at": time.time()}
         return gif, meta
+
+
+# --- /artifacts: read-only static gallery of a scratch dir --------------------
+
+_ARTIFACT_IMG = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".svg"}
+_ARTIFACT_SUFFIXES = _ARTIFACT_IMG | {".json", ".txt", ".csv", ".md", ".log"}
+
+
+def _artifacts_dir() -> Path:
+    """Dir served by /artifacts. Default `scratchpad/` (gitignored, where compare
+    / summary outputs already land); override with COFFEECAM_ARTIFACTS_DIR."""
+    return Path(os.environ.get("COFFEECAM_ARTIFACTS_DIR", "scratchpad"))
+
+
+_ARTIFACTS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam artifacts</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+ body{{font:14px system-ui,sans-serif;margin:0;background:#14161a;color:#e6e6e6}}
+ header{{padding:10px 16px;background:#1d2026;border-bottom:1px solid #2c2f36}}
+ h1{{font-size:15px;margin:0;font-weight:600}} a{{color:#6ab0ff}} .muted{{color:#8a909a}}
+ .grid{{display:flex;flex-wrap:wrap;gap:14px;padding:16px}}
+ figure{{margin:0;flex:0 1 320px;background:#1d2026;border:1px solid #2c2f36;border-radius:8px;padding:8px}}
+ figure img{{display:block;width:100%;height:auto;background:#000;border-radius:4px}}
+ figcaption{{font:12px ui-monospace,monospace;color:#e6e6e6;margin-top:6px;word-break:break-all}}
+ small{{color:#8a909a}} a{{text-decoration:none}}
+</style>
+<header><h1>coffeecam artifacts <span class=muted>&middot; {dir}/ &middot;
+ <a href="/">/</a></span></h1></header>
+<div class=grid>
+{body}
+</div>
+"""
 
 
 # --- /annotate: browser bbox-labeling backed by captures/annotations.jsonl ---
@@ -1118,7 +1154,7 @@ _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
  <figure><figcaption>4 · crop &rarr; classify</figcaption><img src="/crop.jpg?t={ts}"></figure>
 </div>
 <pre>timings_ms: {timings}
-{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level)</pre>
+{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level) · <a href="/artifacts" style="color:#6ab0ff">/artifacts</a> (scratch gallery)</pre>
 """
 
 
@@ -1244,6 +1280,40 @@ def create_app(start_worker: bool = True) -> Flask:
         except NoTestData as exc:
             return jsonify({"error": str(exc)}), 404
         return jsonify(scoreboard)
+
+    # --- /artifacts: read-only gallery of a scratch dir, no restart to add files ---
+
+    @app.get("/artifacts")
+    @app.get("/artifacts/")
+    def artifacts_index():
+        base = _artifacts_dir()
+        if not base.is_dir():
+            return Response(f"{base} does not exist", status=404, mimetype="text/plain")
+        rows = []
+        for p in sorted(base.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if not p.is_file() or p.suffix.lower() not in _ARTIFACT_SUFFIXES:
+                continue
+            rel = p.relative_to(base).as_posix()
+            kb = p.stat().st_size / 1024
+            when = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            thumb = (f'<img src="/artifacts/{rel}" loading=lazy>'
+                     if p.suffix.lower() in _ARTIFACT_IMG else "")
+            rows.append(
+                f'<figure><a href="/artifacts/{rel}">{thumb}<figcaption>{rel}</figcaption></a>'
+                f'<small>{kb:,.0f} KB &middot; {when}</small></figure>'
+            )
+        body = "\n".join(rows) or "<p class=muted>no artifacts yet</p>"
+        return Response(_ARTIFACTS_PAGE.format(dir=base, body=body), mimetype="text/html")
+
+    @app.get("/artifacts/<path:name>")
+    def artifacts_file(name: str):
+        base = _artifacts_dir()
+        if Path(name).suffix.lower() not in _ARTIFACT_SUFFIXES:
+            return Response("unsupported file type", status=415, mimetype="text/plain")
+        try:
+            return send_from_directory(base, name, max_age=0)  # 404s safely on traversal
+        except NotADirectoryError:
+            return Response("not found", status=404, mimetype="text/plain")
 
     @app.get("/viewer")
     def viewer_page():
