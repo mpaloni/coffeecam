@@ -12,9 +12,15 @@ replaced. Full design: [`docs/fullness-plan.md`](fullness-plan.md) — read it f
 - **Detector weight is now in git**: `models/best-trackB-v1.pt` (6.0 MB, sha256
   `2d6948b2…`), byte-identical to `runs/detect/runs/trackB-v1/weights/best.pt`.
   `.gitignore` has a `!models/*.pt` exception. `runs/` is still untracked.
-- Nothing of the fullness classifier is built yet — the plan doc is the only
-  artifact.
-- Tests green: `.venv/bin/python -m pytest -q` → 152 passing.
+- **Step 1 done** (build order below): `coffeecam/fullness_crop.py` —
+  `prepare_crop(frame, box)` + `DEFAULT_POT_BOX = (291, 113, 373, 205)` +
+  `CROP_SIZE = 96`. Expand box to fixed aspect (83:92) → clamp → letterbox → resize,
+  never returns None. Wired into `pipeline.py`: `result.crop` (and the
+  `COFFEECAM_HARVEST` output) is now the `prepare_crop` output, and a detector miss
+  classifies `prepare_crop(frame, DEFAULT_POT_BOX)` instead of `unknown`. Tests:
+  `tests/test_fullness_crop.py` (10). Not yet committed/pushed.
+- Steps 2–6 not started — the plan doc is the only artifact for those.
+- Tests green: `.venv/bin/python -m pytest -q` → 162 passing.
 
 ## Not versioned (know this before relying on it)
 

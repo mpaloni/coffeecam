@@ -3,6 +3,7 @@ import pytest
 from PIL import Image
 
 from coffeecam.fullness import BrightnessFullness, NullFullness
+from coffeecam.fullness_crop import CROP_SIZE
 from coffeecam.normalize import TRAIN_ASPECT, map_bbox_back, match_training_frame
 from coffeecam.pipeline import run_pipeline
 
@@ -99,7 +100,7 @@ def test_pipeline_happy_path_maps_bbox_into_frame():
     assert d is not None
     assert 0 <= d.x1 < d.x2 <= r.frame.width
     assert 0 <= d.y1 < d.y2 <= r.frame.height
-    assert r.crop.size == (d.x2 - d.x1, d.y2 - d.y1)
+    assert r.crop.size == (CROP_SIZE, CROP_SIZE)  # prepare_crop output, not the raw box
     assert r.bounded.size == r.frame.size
     assert r.fullness.method == "brightness-heuristic"
 
@@ -111,12 +112,12 @@ def test_pipeline_without_normalize_uses_frame_coords_directly():
     assert r.detection.bbox == (10, 20, 80, 120)
 
 
-def test_pipeline_no_detection_degrades_cleanly():
+def test_pipeline_no_detection_falls_back_to_static_crop():
     r = run_pipeline(_snapshot(), model=FakeModel([_Box([0, 0, 10, 10], 0.01)]), conf=0.5)
     assert r.detection is None
-    assert r.crop is None
+    # Detector miss => classify the static DEFAULT_POT_BOX crop, not "unknown".
+    assert r.crop is not None and r.crop.size == (CROP_SIZE, CROP_SIZE)
     assert r.bounded.size == r.frame.size
-    assert r.fullness.level == "unknown"
     assert r.errors == []
 
 

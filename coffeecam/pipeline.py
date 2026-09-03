@@ -21,6 +21,7 @@ from PIL import Image, ImageDraw
 from coffeecam.capture import apply_transform
 from coffeecam.detect import Detection, detect_pot
 from coffeecam.fullness import BrightnessFullness, FullnessEstimator, FullnessResult
+from coffeecam.fullness_crop import DEFAULT_POT_BOX, prepare_crop
 from coffeecam.normalize import map_bbox_back, match_training_frame
 
 # Live frames detect ~0.29 bare / ~0.41 normalized; 0.15 clears the normalized
@@ -34,7 +35,7 @@ class PipelineResult:
     frame: Image.Image  # privacy-cropped (rotate 180 + crop) — the "privacy filtered version"
     normalized: Image.Image | None  # black-padded to training aspect — what the detector sees
     bounded: Image.Image  # `frame` with the detection box drawn (copy of `frame` if none)
-    crop: Image.Image | None  # detected pot region, in `frame` pixels
+    crop: Image.Image | None  # prepare_crop() output — the classifier input; None only if transform failed
     detection: Detection | None  # bbox in `frame` coordinates
     fullness: FullnessResult
     timings_ms: dict = field(default_factory=dict)
@@ -99,9 +100,12 @@ def run_pipeline(
         if x2 > x1 and y2 > y1:
             detection = Detection(x1, y1, x2, y2, raw_det.confidence)
 
-    crop = None
-    if detection is not None:
-        crop = _timed("crop", lambda: frame.crop(detection.bbox))
+    # `crop` is the model input: prepare_crop(box) with the detector box, or the
+    # static DEFAULT_POT_BOX when the detector found nothing (camera is fixed, so
+    # a static crop still classifies rather than degrading to "unknown"). Same
+    # transform at train and inference time — see coffeecam/fullness_crop.py.
+    crop_box = detection.bbox if detection is not None else DEFAULT_POT_BOX
+    crop = _timed("crop", lambda: prepare_crop(frame, crop_box))
 
     bounded = frame.copy()
     if detection is not None:
