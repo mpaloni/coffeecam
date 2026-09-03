@@ -852,7 +852,8 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
 </style>
 <header><h1>coffeecam fullness
  <span class=muted>&middot; label the <b>fill level</b> of the crop the model sees &middot;
- <a href="/annotate">/annotate</a> &middot; <a href="/">/</a></span></h1></header>
+ <a href="/annotate">/annotate</a> &middot; <a href="/fullness/compare.gif">v1 vs heuristic</a>
+ &middot; <a href="/">/</a></span></h1></header>
 <div class=wrap>
  <div class=imgs id=imgs>
   <figure><figcaption>model input &mdash; prepare_crop(GT box)</figcaption>
@@ -1223,6 +1224,26 @@ def create_app(start_worker: bool = True) -> Flask:
         except (FileNotFoundError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify(meta)
+
+    @app.get("/fullness/compare.gif")
+    def fullness_compare_gif():
+        from coffeecam.fullness_compare import NoTestData, build_test_gif
+
+        try:
+            gif, _ = build_test_gif()
+        except NoTestData as exc:
+            return Response(str(exc), status=404, mimetype="text/plain")
+        return Response(gif, mimetype="image/gif", headers={"Cache-Control": "no-store"})
+
+    @app.get("/fullness/compare.json")
+    def fullness_compare_json():
+        from coffeecam.fullness_compare import NoTestData, build_test_gif
+
+        try:
+            _, scoreboard = build_test_gif()
+        except NoTestData as exc:
+            return jsonify({"error": str(exc)}), 404
+        return jsonify(scoreboard)
 
     @app.get("/viewer")
     def viewer_page():

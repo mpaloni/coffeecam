@@ -184,6 +184,13 @@ Read: `empty`↔`some` is the main confusion (early-morning dark frames), and th
 so treat ±0.1 as noise. **Next lever is more distinct brew events** (esp. a real
 `full`), not a bigger model. Re-run: `python -m coffeecam.fullness_train`.
 
+**vs the retired `BrightnessFullness` heuristic** on the same 34 frames: balanced
+acc 0.208, fill-score Spearman +0.05 (i.e. uncalibrated noise — it predicts
+`empty` zero times and is blind to `absent`). fullness-v1: balanced acc 0.667,
+Spearman +0.68. Confirms `fullness-plan.md`'s premise that lighting dominates the
+brightness signal. Per-frame walkthrough GIF: `/fullness/compare.gif` (or
+`python -m coffeecam.fullness_compare`), JSON scoreboard at `/fullness/compare.json`.
+
 ---
 
 ## History
