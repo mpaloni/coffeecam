@@ -2,6 +2,7 @@
 runs/
 crops/
 captures/
+fullness_dataset/   # derived by coffeecam.fullness_dataset, rebuilt on demand
 dataset/images/*
 !dataset/images/kahvi.png
 !dataset/images/*_shift_x*_y*.png

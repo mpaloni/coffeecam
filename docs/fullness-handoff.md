@@ -34,11 +34,30 @@ replaced. Full design: [`docs/fullness-plan.md`](fullness-plan.md) — read it f
   frame", key `w`) for carafe-removed frames — stored like a level, distinct from
   `skip`. `s` skip, filter/stride controls.
   Tests: `tests/test_fullness_labels.py` (14), `tests/test_server.py` fullness cases (8).
-- **No labels yet** — `captures/fullness.jsonl` still needs a first ~30-event batch;
-  seed the fuller levels first (see TODO.md). Add a `.gitignore` exception for the
-  jsonl sidecar when it exists.
-- Steps 3–6 not started.
-- Tests green: `.venv/bin/python -m pytest -q` → 184 passing.
+- **First label batch done (2026-09-03):** `captures/fullness.jsonl` has 238
+  labelled + 135 watched (all 373 box-positive frames resolved).
+  `empty 48 · low 71 · half 47 · high 27 · full 5 · absent 40`. `full` is
+  chronically sparse (a carafe is only briefly full) — 4 train / 1 val / 0 test.
+  **`captures/` is fully gitignored** so these 238 labels are unbacked-up manual
+  work — add a `captures/*` + `!captures/fullness.jsonl` exception (and the same
+  for `annotations.jsonl`) before relying on them.
+- **Step 3 done**: `coffeecam/fullness_dataset.py` — reads the two stores, writes
+  `fullness_dataset/{train,val,test}/{class}/*.jpg` of `prepare_crop` outputs.
+  Split is `coffeecam.dataset._split_bucket` (same hash/seed as the detector, no
+  cross-task leakage); natural prevalence per split; output tree wiped+rebuilt
+  each run (guarded against wiping a non-build dir). `--merge {none,coarse,binary}`
+  collapses the 6 labels: `coarse` → `empty/some/lots/absent`, `binary` →
+  `empty/has_coffee/absent`. Dry-run split for the current batch:
+
+  | merge  | train | val | test | note |
+  |--------|-------|-----|------|------|
+  | none   | 170   | 34  | 34   | `full`: 4/1/**0** — unlearnable/unmeasurable |
+  | coarse | 170   | 34  | 34   | `empty 30 / some 86 / lots 23 / absent 31` (train) — every class ≥4 in test |
+  | binary | 170   | 34  | 34   | `empty 30 / has_coffee 109 / absent 31` (train) |
+
+  **Recommend `coarse` for v1.** Tests: `tests/test_fullness_dataset.py` (7).
+- Steps 4–6 not started.
+- Tests green: `.venv/bin/python -m pytest -q` → 191 passing.
 
 ## Labeling guidance
 
