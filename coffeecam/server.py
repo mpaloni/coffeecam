@@ -81,6 +81,8 @@ _viewer_cache: dict | None = None
 # Serializes writers to captures/annotations.jsonl (the /annotate label store).
 # The store itself is cheap to read, so reads happen per-request with no cache.
 _annot_lock = threading.Lock()
+# Same, for captures/fullness.jsonl (the /fullness label store).
+_fullness_lock = threading.Lock()
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -444,6 +446,90 @@ def _annot_queue():
     return frames, counts, picked, captures_dir
 
 
+# --- /fullness: browser fill-level labeling backed by captures/fullness.jsonl ---
+
+def _fullness_store_path() -> Path:
+    return _annot_captures_dir() / "fullness.jsonl"
+
+
+def _fullness_queue():
+    """Ordered fill-level labeling queue for the current query params.
+
+    Returns ``(frames, counts, picked, captures_dir)`` where ``picked`` is the
+    parallel list of ``(rel, box, level, skip)`` so ``/fullness/crop/<i>`` and
+    ``/fullness/frame/<i>`` resolve ``i`` against the same ordering. ``box`` is
+    the frame's first GT ``coffee_pot`` box (needed to crop).
+
+    Only frames with a positive box in ``annotations.jsonl`` are eligible.
+    Params: ``filter=unlabeled|labeled|watched|all`` (default unlabeled),
+    ``stride=N`` (default 1), ``start=YYYY-MM-DD`` (frame's day dir).
+    """
+    from coffeecam import annotations, fullness_labels
+
+    captures_dir = _annot_captures_dir()
+    anns = annotations.load(_annot_store_path())
+    labels = fullness_labels.load(_fullness_store_path())
+
+    start = request.args.get("start")
+    filt = request.args.get("filter", "unlabeled")
+    stride = max(1, _arg_int("stride", 1))
+
+    rows = []
+    for rel in sorted(anns):
+        ann = anns[rel]
+        if not ann.boxes or ann.skip:
+            continue
+        if start and rel.split("/", 1)[0] < start:
+            continue
+        lab = labels.get(rel)
+        is_skip = lab is not None and lab.skip
+        is_l = lab is not None and not lab.skip
+        rows.append((rel, list(ann.boxes[0]), lab.level if is_l else "", is_skip))
+
+    total = len(rows)
+    labeled = sum(1 for _, _, lvl, _ in rows if lvl)
+    watched = sum(1 for *_, is_s in rows if is_s)
+
+    strided = rows[::stride]
+    if filt == "labeled":
+        picked = [x for x in strided if x[2]]
+    elif filt == "watched":
+        picked = [x for x in strided if x[3]]
+    elif filt == "all":
+        picked = list(strided)
+    else:
+        picked = [x for x in strided if not x[2] and not x[3]]
+
+    frames = [
+        {"i": i, "rel": rel, "box": box, "level": lvl, "skip": is_skip}
+        for i, (rel, box, lvl, is_skip) in enumerate(picked)
+    ]
+    counts = {
+        "total": total,
+        "labeled": labeled,
+        "watched": watched,
+        "remaining": total - labeled - watched,
+    }
+    return frames, counts, picked, captures_dir
+
+
+def _fullness_crop_jpeg(frame_path: Path, box, *, full: bool = False) -> bytes | None:
+    """JPEG bytes of ``prepare_crop(frame, box)`` (or the full frame when
+    ``full``). ``None`` if the frame file is gone."""
+    from PIL import Image as _Image
+
+    from coffeecam.fullness_crop import prepare_crop
+
+    if not frame_path.exists():
+        return None
+    with _Image.open(frame_path) as im:
+        frame = im.convert("RGB")
+    img = frame if full else prepare_crop(frame, tuple(box))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=92)
+    return buf.getvalue()
+
+
 _ANNOTATE_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam annotate</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <style>
@@ -734,6 +820,162 @@ loadQueue().catch(err => { $('hdr').textContent = 'load failed: ' + err; });
 """
 
 
+_FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+ body{font:14px system-ui,sans-serif;margin:0;background:#14161a;color:#e6e6e6}
+ header{padding:10px 16px;background:#1d2026;border-bottom:1px solid #2c2f36}
+ h1{font-size:15px;margin:0;font-weight:600} .muted{color:#8a909a} a{color:#6ab0ff}
+ .wrap{max-width:1000px;margin:0 auto;padding:16px;display:flex;gap:16px;flex-wrap:wrap}
+ .imgs{flex:1 1 480px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+ .imgs figure{margin:0}
+ .imgs figcaption{font:12px ui-monospace,monospace;color:#8a909a;margin-bottom:4px}
+ #crop{width:192px;height:192px;image-rendering:pixelated}
+ #frame{max-width:360px;height:auto}
+ .imgs img{display:block;background:#000;border:1px solid #2c2f36;border-radius:8px}
+ .col{flex:0 0 220px;display:flex;flex-direction:column;gap:8px}
+ button,select{font:13px system-ui;padding:6px 10px;background:#2c2f36;color:#e6e6e6;border:1px solid #3a3f47;border-radius:6px;cursor:pointer;text-align:left}
+ button:hover,select:hover{background:#3a3f47}
+ button.lvl{font-weight:600} .row{display:flex;gap:6px} .row button{flex:1}
+ .k{color:#6ab0ff} .cap{font:12px ui-monospace,Menlo,monospace;color:#8a909a;word-break:break-all;line-height:1.6}
+ .cap b{color:#e6e6e6}
+ label.f{font-size:12px;color:#8a909a;display:flex;justify-content:space-between;gap:6px}
+ label.f select{flex:1}
+ .done{padding:20px;background:#1d2026;border:1px solid #2c2f36;border-radius:8px;line-height:1.8}
+</style>
+<header><h1>coffeecam fullness
+ <span class=muted>&middot; label the <b>fill level</b> of the crop the model sees &middot;
+ <a href="/annotate">/annotate</a> &middot; <a href="/">/</a></span></h1></header>
+<div class=wrap>
+ <div class=imgs id=imgs>
+  <figure><figcaption>model input &mdash; prepare_crop(GT box)</figcaption>
+   <img id=crop alt=""></figure>
+  <figure><figcaption>full frame (context)</figcaption><img id=frame alt=""></figure>
+ </div>
+ <div class=col>
+  <div class=cap id=hdr>loading&hellip;</div>
+  <div class=cap id=count></div>
+  <button class=lvl id=lvl-empty>empty &nbsp;<span class=k>e</span></button>
+  <button class=lvl id=lvl-partial>partial &nbsp;<span class=k>p</span></button>
+  <button class=lvl id=lvl-full>full &nbsp;<span class=k>f</span></button>
+  <button id=skip>skip / watched &nbsp;<span class=k>s</span></button>
+  <button id=del>delete saved label &nbsp;<span class=k>&#9003;</span></button>
+  <div class=row><button id=prev>&larr; prev</button><button id=next>next &rarr;</button></div>
+  <button id=skiprest>skip rest of queue</button>
+  <button id=reload>reload queue</button>
+  <label class=f>filter <select id=filter>
+    <option value=unlabeled selected>unlabeled</option>
+    <option value=labeled>labeled</option>
+    <option value=watched>watched</option>
+    <option value=all>all</option></select></label>
+  <label class=f>stride <select id=stride>
+    <option>1</option><option>2</option><option>3</option><option>5</option><option>10</option>
+   </select></label>
+ </div>
+</div>
+<script>
+const params = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+let queue = [], counts = {}, pos = 0;
+const LEVELS = ['empty', 'partial', 'full'];
+
+const qs = () => {
+  const p = new URLSearchParams();
+  p.set('filter', $('filter').value);
+  p.set('stride', $('stride').value);
+  if (params.get('start')) p.set('start', params.get('start'));
+  return p;
+};
+
+async function post(url, body) {
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body) });
+  return { ok: r.ok, data: await r.json().catch(() => ({})) };
+}
+
+async function loadQueue() {
+  const r = await fetch('/fullness/queue.json?' + qs());
+  const d = await r.json();
+  queue = d.frames; counts = d.counts; pos = 0; show();
+}
+function show() {
+  if (pos >= queue.length) return showDone();
+  $('imgs').style.display = '';
+  const f = queue[pos];
+  $('hdr').innerHTML = '<b>' + f.rel + '</b>' +
+    (f.level ? ' &middot; <span style="color:#4caf50">' + f.level + '</span>' : '') +
+    (f.skip ? ' &middot; <span style="color:#e0a020">watched</span>' : '');
+  $('count').textContent = counts.labeled + ' / ' + counts.total + ' labeled &middot; ' +
+    (counts.watched || 0) + ' watched &middot; ' + (queue.length - pos) + ' in queue';
+  $('crop').src = '/fullness/crop/' + f.i + '.jpg?' + qs();
+  $('frame').src = '/fullness/frame/' + f.i + '.jpg?' + qs();
+}
+function showDone() {
+  $('imgs').style.display = 'none';
+  $('hdr').innerHTML = '<b>queue done</b>';
+  $('count').innerHTML = '<div class=done>Labeled ' + counts.labeled + ' / ' +
+    counts.total + ' box-positive frames.<br>' +
+    'Class counts: ' + LEVELS.map(l => l + ' ' + (counts[l] || 0)).join(' &middot; ') +
+    '<br>Next: <code>python -m coffeecam.fullness_dataset</code></div>';
+}
+async function label(level) {
+  const f = queue[pos]; if (!f) return;
+  const { ok, data } = await post('/fullness/label', { rel: f.rel, level });
+  if (!ok) { $('count').textContent = 'save failed: ' + (data.error || '?'); return; }
+  if (!f.level) counts.labeled++;
+  f.level = level; f.skip = false;
+  pos++; show();
+}
+async function skipFrame() {
+  const f = queue[pos]; if (!f) return;
+  const { ok, data } = await post('/fullness/skip', { rel: f.rel });
+  if (!ok) { $('count').textContent = 'skip failed: ' + (data.error || '?'); return; }
+  if (!f.skip) counts.watched = (counts.watched || 0) + 1;
+  f.skip = true; pos++; show();
+}
+async function delSaved() {
+  const f = queue[pos]; if (!f || (!f.level && !f.skip)) return;
+  const { data } = await post('/fullness/label/delete', { rel: f.rel });
+  if (data.removed) { if (f.level) counts.labeled--; f.level = ''; f.skip = false; show(); }
+}
+async function skipRest() {
+  const left = queue.slice(pos).filter(f => !f.level && !f.skip).length;
+  if (!left) { $('count').textContent = 'nothing unlabeled left to skip'; return; }
+  if (!confirm('Mark ' + left + '+ unlabeled frame(s) as watched?')) return;
+  const r = await fetch('/fullness/skip-queue?' + qs(), { method:'POST' });
+  const d = await r.json();
+  $('count').textContent = 'marked ' + (d.skipped || 0) + ' watched';
+  loadQueue();
+}
+
+$('lvl-empty').onclick = () => label('empty');
+$('lvl-partial').onclick = () => label('partial');
+$('lvl-full').onclick = () => label('full');
+$('skip').onclick = skipFrame;
+$('del').onclick = delSaved;
+$('prev').onclick = () => { if (pos > 0) { pos--; show(); } };
+$('next').onclick = () => { pos++; show(); };
+$('skiprest').onclick = skipRest;
+$('reload').onclick = loadQueue;
+$('filter').onchange = loadQueue;
+$('stride').onchange = loadQueue;
+
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === 'e') label('empty');
+  else if (e.key === 'p') label('partial');
+  else if (e.key === 'f') label('full');
+  else if (e.key === 's') skipFrame();
+  else if (e.key === 'Backspace') { e.preventDefault(); delSaved(); }
+  else if (e.key === 'ArrowLeft') $('prev').onclick();
+  else if (e.key === 'ArrowRight') $('next').onclick();
+});
+
+loadQueue().catch(err => { $('hdr').textContent = 'load failed: ' + err; });
+</script>
+"""
+
+
 _VIEWER_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam viewer</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <style>
@@ -850,7 +1092,7 @@ _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
  <figure><figcaption>4 · crop &rarr; classify</figcaption><img src="/crop.jpg?t={ts}"></figure>
 </div>
 <pre>timings_ms: {timings}
-{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames)</pre>
+{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level)</pre>
 """
 
 
@@ -1120,6 +1362,108 @@ def create_app(start_worker: bool = True) -> Flask:
             "skipped_missing": summary.skipped_missing,
             "watched": summary.watched,
         })
+
+    # --- /fullness fill-level labeling endpoint ---------------------------
+
+    @app.get("/fullness")
+    def fullness_page():
+        return Response(_FULLNESS_PAGE, mimetype="text/html")
+
+    @app.get("/fullness/queue.json")
+    def fullness_queue():
+        frames, counts, _, _ = _fullness_queue()
+        from coffeecam import fullness_labels
+
+        store_counts = fullness_labels.counts(_fullness_store_path())
+        # queue counts (total/labeled/watched) are over box-positive frames and
+        # stay authoritative; fold in only the per-level breakdown.
+        for lvl in fullness_labels.LEVELS:
+            counts[lvl] = store_counts.get(lvl, 0)
+        return jsonify({"frames": frames, "counts": counts})
+
+    @app.get("/fullness/crop/<int:i>.jpg")
+    def fullness_crop(i: int):
+        _, _, picked, captures_dir = _fullness_queue()
+        if i < 0 or i >= len(picked):
+            return Response("frame out of range", status=404, mimetype="text/plain")
+        rel, box, _lvl, _skip = picked[i]
+        jpeg = _fullness_crop_jpeg(captures_dir / rel, box)
+        if jpeg is None:
+            return Response("frame gone", status=404, mimetype="text/plain")
+        return Response(jpeg, mimetype="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=300"})
+
+    @app.get("/fullness/frame/<int:i>.jpg")
+    def fullness_full_frame(i: int):
+        _, _, picked, captures_dir = _fullness_queue()
+        if i < 0 or i >= len(picked):
+            return Response("frame out of range", status=404, mimetype="text/plain")
+        rel = picked[i][0]
+        jpeg = _fullness_crop_jpeg(captures_dir / rel, None, full=True)
+        if jpeg is None:
+            return Response("frame gone", status=404, mimetype="text/plain")
+        return Response(jpeg, mimetype="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=300"})
+
+    @app.post("/fullness/label")
+    def fullness_label():
+        from coffeecam import fullness_labels
+
+        data = request.get_json(silent=True) or {}
+        rel = data.get("rel")
+        if not isinstance(rel, str) or not rel.strip():
+            return jsonify({"error": "missing rel"}), 400
+        try:
+            with _fullness_lock:
+                label = fullness_labels.upsert(
+                    rel, data.get("level", ""),
+                    note=data.get("note", ""),
+                    store=_fullness_store_path(),
+                )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(label.to_json())
+
+    @app.post("/fullness/label/delete")
+    def fullness_label_delete():
+        from coffeecam import fullness_labels
+
+        data = request.get_json(silent=True) or {}
+        rel = data.get("rel")
+        if not isinstance(rel, str) or not rel.strip():
+            return jsonify({"error": "missing rel"}), 400
+        with _fullness_lock:
+            removed = fullness_labels.remove(rel, store=_fullness_store_path())
+        return jsonify({"removed": removed})
+
+    @app.post("/fullness/skip")
+    def fullness_skip():
+        from coffeecam import fullness_labels
+
+        data = request.get_json(silent=True) or {}
+        rel = data.get("rel")
+        if not isinstance(rel, str) or not rel.strip():
+            return jsonify({"error": "missing rel"}), 400
+        with _fullness_lock:
+            label = fullness_labels.skip(rel, store=_fullness_store_path())
+        return jsonify(label.to_json())
+
+    @app.post("/fullness/skip-queue")
+    def fullness_skip_queue():
+        """Mark every box-positive frame with no fullness row watched (honours
+        ``start``; ignores ``stride``)."""
+        from coffeecam import fullness_labels
+
+        start = request.args.get("start")
+        have = fullness_labels.load(_fullness_store_path())
+        todo = [
+            rel
+            for rel in fullness_labels.positive_box_rels(_annot_store_path())
+            if rel not in have and not (start and rel.split("/", 1)[0] < start)
+        ]
+        with _fullness_lock:
+            n = fullness_labels.skip_many(todo, store=_fullness_store_path())
+        return jsonify({"skipped": n})
 
     @app.get("/")
     def index():

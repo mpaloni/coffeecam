@@ -19,8 +19,21 @@ replaced. Full design: [`docs/fullness-plan.md`](fullness-plan.md) — read it f
   `COFFEECAM_HARVEST` output) is now the `prepare_crop` output, and a detector miss
   classifies `prepare_crop(frame, DEFAULT_POT_BOX)` instead of `unknown`. Tests:
   `tests/test_fullness_crop.py` (10). Not yet committed/pushed.
-- Steps 2–6 not started — the plan doc is the only artifact for those.
-- Tests green: `.venv/bin/python -m pytest -q` → 162 passing.
+- **Step 2 done**: `coffeecam/fullness_labels.py` (sidecar store for
+  `captures/fullness.jsonl`, mirrors `annotations.py`: `upsert`/`remove`/`skip`/
+  `skip_many`/`load`/`counts`/`positive_box_rels`, CLI `stats` + `skip-unlabeled`;
+  classes `empty`/`partial`/`full`, `skip` row = watched). `GET /fullness` page +
+  `/fullness/{queue.json,crop/<i>.jpg,frame/<i>.jpg,label,label/delete,skip,skip-queue}`
+  in `server.py`, mirroring `/annotate`; queue = frames with a positive box in
+  `annotations.jsonl` (373 of them). Crop endpoint serves `prepare_crop(frame, GT_box)`
+  so the labeller sees exactly the model input. Hotkeys `e`/`p`/`f`, `s` skip,
+  filter/stride controls. Tests: `tests/test_fullness_labels.py` (13),
+  `tests/test_server.py` fullness cases (7).
+- **No labels yet** — `captures/fullness.jsonl` still needs a first ~30-event batch;
+  seed `partial`/`full` first (see TODO.md). Add a `.gitignore` exception for the
+  jsonl sidecar when it exists.
+- Steps 3–6 not started.
+- Tests green: `.venv/bin/python -m pytest -q` → 182 passing.
 
 ## Not versioned (know this before relying on it)
 

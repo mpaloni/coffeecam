@@ -22,6 +22,7 @@ def _reset_server_state():
     server._compare_cache = None
     server._compare_models.clear()
     server._annot_lock = threading.Lock()
+    server._fullness_lock = threading.Lock()
     yield
 
 
@@ -299,3 +300,82 @@ def test_promote_route_needs_confirm(client, captures_env, tmp_path, monkeypatch
     body = r.get_json()
     assert body["train"] + body["val"] + body["test"] >= 1
     assert "train" in body["summary"]
+
+
+# --- /fullness fill-level labeling endpoint -----------------------------
+
+@pytest.fixture
+def fullness_env(captures_env):
+    """captures_env + an annotations.jsonl giving two of the three frames a box."""
+    from coffeecam import annotations
+
+    store = captures_env / "annotations.jsonl"
+    annotations.upsert("2026-08-31/070008_549.jpg", [[291, 113, 373, 205]], store=store)
+    annotations.upsert("2026-09-01/101558_558.jpg", [[280, 110, 360, 200]], store=store)
+    annotations.upsert("2026-08-31/180042_126.jpg", [], store=store)  # negative — excluded
+    return captures_env
+
+
+def test_fullness_page_is_html(client):
+    resp = client.get("/fullness")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["Content-Type"]
+    assert "/fullness/queue.json" in resp.get_data(as_text=True)
+
+
+def test_fullness_queue_only_box_positive_frames(client, fullness_env):
+    body = client.get("/fullness/queue.json").get_json()
+    rels = [f["rel"] for f in body["frames"]]
+    assert rels == ["2026-08-31/070008_549.jpg", "2026-09-01/101558_558.jpg"]
+    assert body["counts"]["total"] == 2
+    assert body["counts"]["labeled"] == 0
+    assert body["counts"]["empty"] == 0
+
+
+def test_fullness_label_moves_frame_out_of_unlabeled(client, fullness_env):
+    r = client.post("/fullness/label", json={"rel": "2026-08-31/070008_549.jpg", "level": "full"})
+    assert r.status_code == 200 and r.get_json()["level"] == "full"
+
+    body = client.get("/fullness/queue.json").get_json()
+    assert [f["rel"] for f in body["frames"]] == ["2026-09-01/101558_558.jpg"]
+    assert body["counts"]["labeled"] == 1
+    assert body["counts"]["full"] == 1
+
+    labeled = client.get("/fullness/queue.json?filter=labeled").get_json()
+    assert labeled["frames"][0]["level"] == "full"
+
+
+def test_fullness_label_rejects_bad_level(client, fullness_env):
+    r = client.post("/fullness/label", json={"rel": "2026-08-31/070008_549.jpg", "level": "brimming"})
+    assert r.status_code == 400
+
+
+def test_fullness_crop_and_frame_jpeg(client, fullness_env):
+    crop = client.get("/fullness/crop/0.jpg")
+    assert crop.status_code == 200 and crop.headers["Content-Type"] == "image/jpeg"
+    frame = client.get("/fullness/frame/0.jpg")
+    assert frame.status_code == 200 and frame.headers["Content-Type"] == "image/jpeg"
+    assert len(crop.get_data()) < len(frame.get_data())  # 96px crop is smaller
+    assert client.get("/fullness/crop/9.jpg").status_code == 404
+
+
+def test_fullness_skip_and_delete(client, fullness_env):
+    assert client.post("/fullness/skip", json={"rel": "2026-08-31/070008_549.jpg"}).status_code == 200
+    body = client.get("/fullness/queue.json").get_json()
+    assert body["counts"]["watched"] == 1
+    assert [f["rel"] for f in body["frames"]] == ["2026-09-01/101558_558.jpg"]
+
+    assert client.post("/fullness/label/delete",
+                       json={"rel": "2026-08-31/070008_549.jpg"}).get_json()["removed"] is True
+    body = client.get("/fullness/queue.json").get_json()
+    assert body["counts"]["watched"] == 0 and body["counts"]["total"] == 2
+
+
+def test_fullness_skip_queue(client, fullness_env):
+    client.post("/fullness/label", json={"rel": "2026-08-31/070008_549.jpg", "level": "empty"})
+    r = client.post("/fullness/skip-queue")
+    assert r.get_json()["skipped"] == 1  # the one remaining box-positive frame
+    body = client.get("/fullness/queue.json").get_json()
+    assert body["frames"] == []
+    assert body["counts"] == {"total": 2, "labeled": 1, "watched": 1, "remaining": 0,
+                              "empty": 1, "partial": 0, "full": 0}
