@@ -3,7 +3,7 @@
 Living status of the coffee-pot detector: what's live, what's training, what to do next.
 How the labeling → dataset → train → compare loop works is in `dataset-and-training.md`.
 
-Last updated: 2026-09-02 (trackB-v1 promoted).
+Last updated: 2026-09-03 (fullness-v1 trained).
 
 ---
 
@@ -141,6 +141,48 @@ echo '[]' > dataset/augmentations.json
   Recovered (reboot, drain, delete Failed/Succeeded pods, `etcdctl defrag`, taint master
   control-plane-only, `--terminated-pod-gc-threshold=1000`). `semantic-router` left scaled
   to 0 — leave it. Nothing coffeecam-related caused it, but prefer the box for small runs.
+
+---
+
+## Fullness classifier (`yolov8n-cls`)
+
+Separate model from the detector — reads the `prepare_crop` output, predicts fill
+level. Full design: `fullness-plan.md`. Pointer: `models/FULLNESS_CHECKPOINT`
+(mirrors `models/CHECKPOINT`); pipeline picks it up via
+`fullness.default_estimator()`, falls back to `NullFullness` on a fresh clone.
+
+**fullness-v1 (2026-09-03)** — `runs/classify/fullness-v1`, `--merge coarse`
+(`empty` / `some` = low+half / `lots` = high+full / `absent`), 80 epochs, imgsz
+96. Train oversampled to ~1:1:1 with box-jittered crops (361 imgs); val/test at
+natural prevalence (34 / 34 real held-out frames, same hash-split as the
+detector).
+
+Test split (34 frames — **never report raw accuracy**, majority class ≈ 53 %):
+
+| metric | value |
+|---|---|
+| balanced accuracy | **0.667** |
+| recall `empty` | 0.50 |
+| recall `some` | 0.667 |
+| recall `lots` | 0.75 |
+| recall `absent` | 0.75 |
+| recall `has_coffee` (some+lots merged) | 0.818 |
+| raw accuracy | 0.647 (22/34) |
+
+Confusion (rows = true, cols = pred):
+
+```
+         absent  empty   lots   some
+absent      3      0      0      1
+ empty      1      4      0      3
+  lots      0      0      3      1
+  some      2      2      2     12
+```
+
+Read: `empty`↔`some` is the main confusion (early-morning dark frames), and the
+34-frame test set is mostly heartbeat near-dupes from a handful of brew events,
+so treat ±0.1 as noise. **Next lever is more distinct brew events** (esp. a real
+`full`), not a bigger model. Re-run: `python -m coffeecam.fullness_train`.
 
 ---
 

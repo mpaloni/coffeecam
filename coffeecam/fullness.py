@@ -1,22 +1,36 @@
 """Fullness estimation for the detected pot crop.
 
-There is no trained classifier yet (no labelled fill-level data). `BrightnessFullness`
-is a deliberate placeholder: a glass carafe full of coffee is dark, an empty one is
-bright (you see the white holder / background through it), so mean luminance of the
-lower-centre of the crop is a rough proxy. It is uncalibrated — `method` says so in
-the JSON. Swap in a `ModelFullness` with the same `.estimate()` once crops are
-labelled; nothing else in the pipeline changes.
+`ModelFullness` is the real thing: a `yolov8n-cls` head over the 96 px
+`prepare_crop` output, trained by `coffeecam.fullness_train` and pointed at by
+`models/FULLNESS_CHECKPOINT`. `default_estimator()` returns it when those weights
+resolve, else `NullFullness`.
+
+`BrightnessFullness` is the retired placeholder — a glass carafe full of coffee
+is dark, an empty one bright, so mean luminance of the lower-centre was a rough
+proxy. Uncalibrated (`method` said so); kept only for reference / offline compare.
+All three share `.estimate(crop) -> FullnessResult`, so the pipeline is agnostic.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
 from PIL import Image
 
 LEVELS = ("empty", "low", "half", "high", "full")
+
+# Maps any class a fullness model might emit to a 0..1 fill scalar. Covers the
+# raw 5-level scale and the `coarse` merge (empty/some/lots) from
+# `fullness_dataset`. `absent` is off the scale -> score None.
+_FILL_SCALAR = {
+    "empty": 0.0, "low": 0.25, "some": 0.33, "half": 0.5,
+    "high": 0.75, "lots": 0.83, "full": 1.0,
+}
+
+FULLNESS_CHECKPOINT_FILE = Path("models/FULLNESS_CHECKPOINT")
 
 
 @dataclass(frozen=True)
@@ -74,3 +88,67 @@ class BrightnessFullness:
             method="brightness-heuristic",
             detail={"mean_luminance": round(mean_lum, 1), "uncalibrated": True},
         )
+
+
+def resolve_fullness_weights(explicit: Path | None = None) -> Path | None:
+    """`models/FULLNESS_CHECKPOINT` -> `<run>/weights/best.pt`, or ``None`` when
+    no pointer / file exists (a fresh clone has no `runs/`). Unlike the
+    detector's `resolve_weights`, absence is not an error — the pipeline falls
+    back to `NullFullness`."""
+    if explicit is not None:
+        return explicit if Path(explicit).exists() else None
+    if not FULLNESS_CHECKPOINT_FILE.exists():
+        return None
+    run = FULLNESS_CHECKPOINT_FILE.read_text().strip()
+    if not run:
+        return None
+    weights = Path(run)
+    if weights.suffix != ".pt":
+        weights = weights / "weights" / "best.pt"
+    return weights if weights.exists() else None
+
+
+@dataclass
+class ModelFullness:
+    """`yolov8n-cls` over the `prepare_crop` output. `.estimate()` returns the
+    argmax class as `level`, a 0..1 fill scalar as `score` (probability-weighted
+    over the fill classes; ``None`` when the model calls `absent`), and the full
+    prob vector in `detail`."""
+
+    weights: Path
+    _model: object = field(default=None, repr=False, compare=False)
+
+    def _load(self):
+        if self._model is None:
+            from ultralytics import YOLO  # lazy: keep import optional
+
+            self._model = YOLO(str(self.weights))
+        return self._model
+
+    def estimate(self, crop: Image.Image | None) -> FullnessResult:
+        if crop is None:
+            return FullnessResult(level="unknown", score=None, method="yolov8n-cls")
+
+        res = self._load().predict(crop, verbose=False)[0]
+        names = res.names
+        probs = {names[i]: round(float(p), 4) for i, p in enumerate(res.probs.data.tolist())}
+        level = names[int(res.probs.top1)]
+
+        scale_mass = sum(probs[c] for c in probs if c in _FILL_SCALAR)
+        if scale_mass > 0:
+            score = round(
+                sum(probs[c] * _FILL_SCALAR[c] for c in probs if c in _FILL_SCALAR)
+                / scale_mass, 3,
+            )
+        else:  # model is confident it's `absent` / off-scale
+            score = None
+
+        return FullnessResult(
+            level=level, score=score, method="yolov8n-cls", detail={"probs": probs},
+        )
+
+
+def default_estimator(weights: Path | None = None) -> FullnessEstimator:
+    """`ModelFullness` when weights resolve, else `NullFullness`."""
+    resolved = resolve_fullness_weights(weights)
+    return ModelFullness(resolved) if resolved is not None else NullFullness()

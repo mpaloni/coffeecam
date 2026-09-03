@@ -2,10 +2,18 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from coffeecam import fullness as _fullness
 from coffeecam.fullness import BrightnessFullness, NullFullness
 from coffeecam.fullness_crop import CROP_SIZE
 from coffeecam.normalize import TRAIN_ASPECT, map_bbox_back, match_training_frame
 from coffeecam.pipeline import run_pipeline
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_fullness_weights(tmp_path, monkeypatch):
+    """Keep run_pipeline's default estimator deterministic (NullFullness) even
+    when the repo has a real models/FULLNESS_CHECKPOINT checked out."""
+    monkeypatch.setattr(_fullness, "FULLNESS_CHECKPOINT_FILE", tmp_path / "no-ckpt")
 
 
 # --------------------------------------------------------------------------- #
@@ -102,7 +110,7 @@ def test_pipeline_happy_path_maps_bbox_into_frame():
     assert 0 <= d.y1 < d.y2 <= r.frame.height
     assert r.crop.size == (CROP_SIZE, CROP_SIZE)  # prepare_crop output, not the raw box
     assert r.bounded.size == r.frame.size
-    assert r.fullness.method == "brightness-heuristic"
+    assert r.fullness.method == "none"  # NullFullness — no weights in the test env
 
 
 def test_pipeline_without_normalize_uses_frame_coords_directly():

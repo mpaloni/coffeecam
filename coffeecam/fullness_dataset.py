@@ -19,6 +19,8 @@ artifact), so changing ``--merge`` doesn't leave stale class dirs behind.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import random
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +33,34 @@ from coffeecam.fullness_crop import CROP_SIZE, prepare_crop
 
 DEFAULT_OUT = Path("fullness_dataset")
 SPLITS = ("train", "val", "test")
+
+# --balance cap: at most this many crops per source train frame (1 plain + the
+# rest box-jittered). Keeps a rare class from being blown up 20x off a handful
+# of frames.
+MAX_VARIANTS = 8
+
+
+def _rng_for(rel: str, seed: int) -> random.Random:
+    h = hashlib.sha1(f"{seed}:{rel}".encode()).hexdigest()
+    return random.Random(int(h[:16], 16))
+
+
+def jitter_box(
+    box: tuple[float, float, float, float],
+    rng: random.Random,
+    *,
+    scale: tuple[float, float] = (0.85, 1.20),
+    translate: int = 12,
+) -> tuple[float, float, float, float]:
+    """Perturb a GT box to mimic the live detector's sloppiness: scale about the
+    centre by a random factor, then shift each side independently by ±translate
+    px. `prepare_crop` re-letterboxes, so the result stays a valid crop."""
+    x1, y1, x2, y2 = box
+    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    s = rng.uniform(*scale)
+    hw, hh = (x2 - x1) / 2 * s, (y2 - y1) / 2 * s
+    t = lambda: rng.uniform(-translate, translate)  # noqa: E731
+    return (cx - hw + t(), cy - hh + t(), cx + hw + t(), cy + hh + t())
 
 # Ways to collapse the 6 raw labels (LEVELS + "absent") into a coarser class set.
 # `full` is chronically sparse (a carafe is only briefly full), so `none` will
@@ -102,8 +132,12 @@ def build(
     test_frac: float = 0.15,
     seed: int = 0,
     crop_size: int = CROP_SIZE,
+    balance: bool = False,
     dry_run: bool = False,
 ) -> BuildSummary:
+    """Build the tree. With ``balance`` the *train* split is oversampled toward
+    ~1:1:1 by emitting up to :data:`MAX_VARIANTS` box-jittered crops per source
+    frame for the rarer classes (val/test stay at one plain crop each)."""
     if merge not in MERGES:
         raise ValueError(f"merge must be one of {sorted(MERGES)}, got {merge!r}")
     captures_dir = Path(captures_dir or "captures")
@@ -133,6 +167,8 @@ def build(
         classes=classes,
     )
 
+    # Pass 1: resolve every usable frame to (rel, box, cls, bucket).
+    items: list[tuple[str, tuple, str, str]] = []
     for rel in sorted(labels):
         lab = labels[rel]
         if lab.skip or not lab.level:
@@ -142,23 +178,41 @@ def build(
         if ann is None or not ann.boxes or ann.skip:
             summary.skipped_no_box += 1
             continue
-        src = captures_dir / rel
-        if not src.exists():
+        if not (captures_dir / rel).exists():
             summary.skipped_missing += 1
             continue
-
         cls = remap(lab.level, merge)
         bucket = _split_bucket(rel, seed=seed, val_frac=val_frac, test_frac=test_frac)
-        summary.counts[bucket][cls] += 1
+        items.append((rel, tuple(ann.boxes[0]), cls, bucket))
+
+    # Per-class variant count for the train split (1 unless balancing).
+    train_per_class = {c: 0 for c in classes}
+    for _, _, cls, bucket in items:
+        if bucket == "train":
+            train_per_class[cls] += 1
+    target = max(train_per_class.values(), default=0)
+
+    def n_variants(cls: str, bucket: str) -> int:
+        if bucket != "train" or not balance or not train_per_class[cls]:
+            return 1
+        return max(1, min(MAX_VARIANTS, round(target / train_per_class[cls])))
+
+    # Pass 2: emit crops.
+    for rel, box, cls, bucket in items:
+        k = n_variants(cls, bucket)
+        summary.counts[bucket][cls] += k
         if dry_run:
             continue
-
-        dest = out_dir / bucket / cls / dest_name_for(rel)
-        with Image.open(src) as im:
+        with Image.open(captures_dir / rel) as im:
             frame = im.convert("RGB")
-        prepare_crop(frame, tuple(ann.boxes[0]), size=crop_size).save(
-            dest, "JPEG", quality=92
-        )
+        stem = dest_name_for(rel)[:-4]  # drop ".jpg"
+        rng = _rng_for(rel, seed)
+        for v in range(k):
+            crop_box = box if v == 0 else jitter_box(box, rng)
+            name = f"{stem}.jpg" if v == 0 else f"{stem}_j{v}.jpg"
+            prepare_crop(frame, tuple(crop_box), size=crop_size).save(
+                out_dir / bucket / cls / name, "JPEG", quality=92
+            )
 
     return summary
 
@@ -169,12 +223,17 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--captures-dir", type=Path, default=Path("captures"))
     ap.add_argument("--merge", choices=sorted(MERGES), default="none")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--balance", action="store_true",
+        help="oversample the train split toward 1:1:1 with box-jittered crops",
+    )
     ap.add_argument("--dry-run", action="store_true", help="count only, write nothing")
     args = ap.parse_args(argv)
 
     summary = build(
         captures_dir=args.captures_dir,
         out_dir=args.out,
+        balance=args.balance,
         merge=args.merge,
         seed=args.seed,
         dry_run=args.dry_run,

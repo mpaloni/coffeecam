@@ -131,11 +131,18 @@ def _harvest(result: PipelineResult) -> None:
 def _worker(model) -> None:
     global _last_fetch_error
     cfg = _cfg()
+    from coffeecam.fullness import default_estimator
+
+    estimator = default_estimator()  # load the fullness model once, not per frame
+    print(f"[fullness] estimator: {type(estimator).__name__}")
     while True:
         try:
             snap = fetch_snapshot(cfg["source_url"])
             _last_fetch_error = None
-            result = run_pipeline(snap, model=model, normalize=cfg["normalize"], conf=cfg["conf"])
+            result = run_pipeline(
+                snap, model=model, estimator=estimator,
+                normalize=cfg["normalize"], conf=cfg["conf"],
+            )
             _store(result)
             if cfg["harvest"]:
                 try:

@@ -4,7 +4,9 @@ from PIL import Image
 from coffeecam import annotations, fullness_labels
 from coffeecam.dataset import _split_bucket
 from coffeecam.fullness_crop import CROP_SIZE
-from coffeecam.fullness_dataset import MERGES, build, remap
+import random
+
+from coffeecam.fullness_dataset import MAX_VARIANTS, MERGES, build, jitter_box, remap
 
 
 @pytest.fixture
@@ -86,6 +88,43 @@ def test_refuses_to_wipe_unrelated_dir(stores, tmp_path):
     with pytest.raises(RuntimeError, match="refusing to wipe"):
         build(captures_dir=stores, out_dir=out)
     assert (out / "important.txt").exists()
+
+
+def test_balance_oversamples_train_only(stores, tmp_path):
+    out = tmp_path / "fds"
+    plain = build(captures_dir=stores, out_dir=tmp_path / "p", merge="coarse", dry_run=True)
+    bal = build(captures_dir=stores, out_dir=out, merge="coarse", balance=True)
+
+    # val/test identical to the un-balanced build
+    for split in ("val", "test"):
+        assert bal.counts[split] == plain.counts[split]
+    # train classes pulled toward parity
+    tc = bal.counts["train"]
+    assert max(tc.values()) - min(tc.values()) <= 2
+    assert max(tc.values()) <= MAX_VARIANTS * max(plain.counts["train"].values())
+    # jittered variants really written, and still valid crops
+    js = list(out.glob("train/*/*_j*.jpg"))
+    assert js
+    with Image.open(js[0]) as im:
+        assert im.size == (CROP_SIZE, CROP_SIZE)
+
+
+def test_balance_is_deterministic(stores, tmp_path):
+    a = build(captures_dir=stores, out_dir=tmp_path / "a", merge="coarse", balance=True)
+    b = build(captures_dir=stores, out_dir=tmp_path / "b", merge="coarse", balance=True)
+    assert a.counts == b.counts
+    names_a = sorted(p.relative_to(tmp_path / "a").as_posix() for p in (tmp_path / "a").rglob("*.jpg"))
+    names_b = sorted(p.relative_to(tmp_path / "b").as_posix() for p in (tmp_path / "b").rglob("*.jpg"))
+    assert names_a == names_b
+
+
+def test_jitter_box_stays_near_original():
+    rng = random.Random(0)
+    box = (100.0, 100.0, 180.0, 190.0)
+    for _ in range(50):
+        x1, y1, x2, y2 = jitter_box(box, rng)
+        assert x2 > x1 and y2 > y1
+        assert abs((x1 + x2) / 2 - 140) < 40 and abs((y1 + y2) / 2 - 145) < 40
 
 
 def test_remap_and_bad_merge():

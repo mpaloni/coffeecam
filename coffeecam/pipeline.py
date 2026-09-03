@@ -3,8 +3,9 @@
 `run_pipeline` takes a raw camera snapshot and returns a `PipelineResult` holding
 each intermediate image, per-stage timings, and a list of non-fatal errors (a
 stage that fails is recorded and the pipeline continues degraded rather than
-raising). The Flask server renders these; the classify stage is a placeholder
-(`fullness.BrightnessFullness`) until a real model exists.
+raising). The Flask server renders these; the classify stage runs
+`fullness.default_estimator()` (`ModelFullness` when weights resolve, else
+`NullFullness`).
 
 The raw, un-privacy-cropped frame is never stored on the result — `apply_transform`
 (rotate 180 + privacy crop) runs first and only its output propagates.
@@ -20,7 +21,7 @@ from PIL import Image, ImageDraw
 
 from coffeecam.capture import apply_transform
 from coffeecam.detect import Detection, detect_pot
-from coffeecam.fullness import BrightnessFullness, FullnessEstimator, FullnessResult
+from coffeecam.fullness import FullnessEstimator, FullnessResult, default_estimator
 from coffeecam.fullness_crop import DEFAULT_POT_BOX, prepare_crop
 from coffeecam.normalize import map_bbox_back, match_training_frame
 
@@ -54,7 +55,7 @@ def run_pipeline(
     normalize: bool = True,
     conf: float = DEFAULT_CONF,
 ) -> PipelineResult:
-    estimator = estimator or BrightnessFullness()
+    estimator = estimator or default_estimator()
     timings: dict[str, float] = {}
     errors: list[str] = []
 

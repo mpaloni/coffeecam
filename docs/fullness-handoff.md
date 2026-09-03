@@ -55,9 +55,26 @@ replaced. Full design: [`docs/fullness-plan.md`](fullness-plan.md) — read it f
   | coarse | 170   | 34  | 34   | `empty 30 / some 86 / lots 23 / absent 31` (train) — every class ≥4 in test |
   | binary | 170   | 34  | 34   | `empty 30 / has_coffee 109 / absent 31` (train) |
 
-  **Recommend `coarse` for v1.** Tests: `tests/test_fullness_dataset.py` (7).
-- Steps 4–6 not started.
-- Tests green: `.venv/bin/python -m pytest -q` → 191 passing.
+  `--balance` oversamples the *train* split to ~1:1:1 with box-jittered
+  `prepare_crop` variants (`jitter_box`: scale ×0.85–1.20, each side ±12 px),
+  capped at 8/frame; val/test untouched. Tests: `tests/test_fullness_dataset.py` (12).
+- **Step 4 done**: `coffeecam/fullness_train.py` — rebuilds the tree
+  (`--merge coarse --balance` default), fine-tunes `yolov8n-cls.pt` at imgsz 96,
+  writes `models/FULLNESS_CHECKPOINT`. Ran **fullness-v1** (2026-09-03,
+  `runs/classify/fullness-v1`, 80 ep): **test balanced accuracy 0.667**,
+  `has_coffee` recall 0.818 on 34 real held-out frames — full matrix in
+  `docs/training-status.md`. Tests: `tests/test_fullness_train.py` (2, stubbed YOLO).
+- **Step 5 done**: `ModelFullness` in `fullness.py` + `resolve_fullness_weights()`
+  + `default_estimator()` (→ `ModelFullness` when the checkpoint resolves, else
+  `NullFullness`). `pipeline.py` / `server.py` now use `default_estimator()`;
+  `BrightnessFullness` retired to reference-only. `score` = prob-weighted fill
+  scalar over on-scale classes (`_FILL_SCALAR`), `None` when argmax is `absent`.
+  Tests: `tests/test_fullness_model.py` (12). Live smoke: early-morning frames →
+  `absent` p≈0.8–0.9, as expected.
+- **Not yet**: restart `coffeecam-web` to pick up `ModelFullness`; the
+  `captures/*` gitignore exception for the label sidecars; step 6 (more brew
+  events, esp. a real `full`).
+- Tests green: `.venv/bin/python -m pytest -q` → 205 passing.
 
 ## Labeling guidance
 
