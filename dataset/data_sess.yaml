@@ -1,0 +1,7 @@
+path: dataset
+train: train_sess.txt
+val: val_sess.txt
+test: test_sess.txt
+
+names:
+  0: coffee_pot
