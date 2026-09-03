@@ -860,9 +860,13 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
   <button class=lvl id=lvl-3>3 &mdash; half &nbsp;<span class=k>3</span></button>
   <button class=lvl id=lvl-4>4 &mdash; high &nbsp;<span class=k>4</span></button>
   <button class=lvl id=lvl-5>5 &mdash; full &nbsp;<span class=k>5</span></button>
-  <button class=lvl id=lvl-absent>0 &mdash; no pot &nbsp;<span class=k>0</span></button>
+  <button class=lvl id=lvl-absent>no pot in frame &nbsp;<span class=k>w</span></button>
   <button id=skip>skip / watched &nbsp;<span class=k>s</span></button>
   <button id=del>delete saved label &nbsp;<span class=k>&#9003;</span></button>
+  <div class=cap muted style="line-height:1.5">
+   Judge the fill level from whichever image is clearer &mdash; use the full
+   frame if the crop is off. <b>skip</b> only when neither image lets you tell.
+   <b>no pot</b> = carafe not on the warmer.</div>
   <div class=row><button id=prev>&larr; prev</button><button id=next>next &rarr;</button></div>
   <button id=skiprest>skip rest of queue</button>
   <button id=reload>reload queue</button>
@@ -881,7 +885,7 @@ const params = new URLSearchParams(location.search);
 const $ = id => document.getElementById(id);
 let queue = [], counts = {}, pos = 0;
 // 1-5 scale; index 0 unused so n maps straight to LEVELS[n]. 'absent' (no pot in
-// frame) is a separate label, keyed 0, not part of the scale.
+// frame) is a separate label, keyed 'w', not part of the scale.
 const LEVELS = [null, 'empty', 'low', 'half', 'high', 'full'];
 const ABSENT = 'absent';
 const DOT = ' \\u00b7 ';
@@ -930,7 +934,7 @@ function showDone() {
     counts.total + ' box-positive frames.<br>' +
     'Class counts: ' + LEVELS.slice(1).map(
       (l, i) => (i + 1) + '/' + l + ' ' + (counts[l] || 0)).join(' &middot; ') +
-    ' &middot; 0/' + ABSENT + ' ' + (counts[ABSENT] || 0) +
+    ' &middot; ' + ABSENT + ' ' + (counts[ABSENT] || 0) +
     '<br>Next: <code>python -m coffeecam.fullness_dataset</code></div>';
 }
 async function label(level) {
@@ -977,7 +981,7 @@ $('stride').onchange = loadQueue;
 addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
   if (e.key >= '1' && e.key <= '5') label(LEVELS[+e.key]);
-  else if (e.key === '0') label(ABSENT);
+  else if (e.key === 'w') label(ABSENT);
   else if (e.key === 's') skipFrame();
   else if (e.key === 'Backspace') { e.preventDefault(); delSaved(); }
   else if (e.key === 'ArrowLeft') $('prev').onclick();

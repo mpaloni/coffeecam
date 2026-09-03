@@ -203,7 +203,7 @@ fallback but is no longer the pipeline default once weights exist.
 - Is `partial` learnable, or collapse to binary from the start? Decide after the
   first label batch shows the class counts.
 - ~~Carafe-removed frames: separate class, or out of scope for fullness?~~
-  Decided (2026-09-03): **separate label `absent`**, keyed `0` in `/fullness`,
+  Decided (2026-09-03): **separate label `absent`**, keyed `w` in `/fullness`,
   stored like a level (`fullness_labels.LABELS = LEVELS + ("absent",)`). Kept
   distinct from a `skip` row (glare/blur/unlabelable). `fullness_dataset` chooses
   keep-as-class vs drop.

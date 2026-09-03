@@ -30,13 +30,32 @@ replaced. Full design: [`docs/fullness-plan.md`](fullness-plan.md) — read it f
   `/fullness/{queue.json,crop/<i>.jpg,frame/<i>.jpg,label,label/delete,skip,skip-queue}`
   in `server.py`, mirroring `/annotate`; queue = frames with a positive box in
   `annotations.jsonl` (373 of them). Crop endpoint serves `prepare_crop(frame, GT_box)`
-  so the labeller sees exactly the model input. `s` skip, filter/stride controls.
-  Tests: `tests/test_fullness_labels.py` (13), `tests/test_server.py` fullness cases (7).
+  so the labeller sees exactly the model input. Sixth label `absent` ("no pot in
+  frame", key `w`) for carafe-removed frames — stored like a level, distinct from
+  `skip`. `s` skip, filter/stride controls.
+  Tests: `tests/test_fullness_labels.py` (14), `tests/test_server.py` fullness cases (8).
 - **No labels yet** — `captures/fullness.jsonl` still needs a first ~30-event batch;
   seed the fuller levels first (see TODO.md). Add a `.gitignore` exception for the
   jsonl sidecar when it exists.
 - Steps 3–6 not started.
-- Tests green: `.venv/bin/python -m pytest -q` → 182 passing.
+- Tests green: `.venv/bin/python -m pytest -q` → 184 passing.
+
+## Labeling guidance
+
+The `/fullness` crop is `prepare_crop(frame, GT_box)` where `GT_box` is the
+**hand-drawn** box from `/annotate`, not the live detector's output — so the crop
+is only wrong when that box was drawn sloppily.
+
+- **Label from whichever image reads clearer.** Normally the crop; fall back to
+  the full frame (shown alongside) when the crop is tight, clipped, or ambiguous.
+  A correct level on an imperfect crop is still good signal — train-time box
+  jitter (step 4) is built to cover exactly that sloppiness.
+- **If the crop is bad because the GT box is bad** (way off, includes the mug,
+  clips the carafe): the clean fix is to re-draw it in `/annotate` (regenerates
+  the crop), then label. Optional polish, not required for a first batch.
+- **`skip` / watched** only when *neither* image lets you judge the level (glare
+  on the glass, motion blur, too dark).
+- **`w` / `absent`** when the carafe isn't on the warmer at all.
 
 ## Not versioned (know this before relying on it)
 
@@ -103,7 +122,7 @@ replaced. Full design: [`docs/fullness-plan.md`](fullness-plan.md) — read it f
   `TODO.md` flags it — check before locking `DEFAULT_POT_BOX`.
 - `partial` learnable or binary from the start? Decide after batch 1's class counts.
 - ~~Carafe-removed frames: own class or out of scope?~~ **Decided: own label
-  `absent`** (keyed `0` in the UI, "no pot"). Stored like a level, not a `skip`;
+  `absent`** (keyed `w` in the UI, "no pot in frame"). Stored like a level, not a `skip`;
   `fullness_dataset` decides keep-as-class vs drop.
 - Optional cleanup: wire `detect.resolve_weights()` to fall back to `models/*.pt`
   so a fresh clone can run the detector without `runs/`.
