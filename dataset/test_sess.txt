@@ -1,6 +1,10 @@
+./images/cap_20260831_155905_054.jpg
+./images/cap_20260831_160407_058.jpg
+./images/cap_20260831_160908_052.jpg
+./images/cap_20260831_161411_555.jpg
+./images/cap_20260831_161913_556.jpg
+./images/cap_20260901_133203_060.jpg
 ./images/cap_20260902_123257_100.jpg
-./images/cap_20260902_123309_078.jpg
-./images/cap_20260902_123312_557.jpg
 ./images/cap_20260902_123316_052.jpg
 ./images/cap_20260902_123329_555.jpg
 ./images/cap_20260902_123409_588.jpg
@@ -42,11 +46,6 @@
 ./images/cap_20260902_124846_141.jpg
 ./images/cap_20260902_124852_549.jpg
 ./images/cap_20260902_124856_071.jpg
-./images/cap_20260902_125133_551.jpg
-./images/cap_20260902_125137_151.jpg
-./images/cap_20260902_125157_053.jpg
-./images/cap_20260902_125200_080.jpg
-./images/cap_20260902_125213_555.jpg
 ./images/cap_20260902_125220_550.jpg
 ./images/cap_20260902_125227_049.jpg
 ./images/cap_20260902_125756_643.jpg
@@ -54,9 +53,7 @@
 ./images/cap_20260902_130800_553.jpg
 ./images/cap_20260902_131302_551.jpg
 ./images/cap_20260902_131805_063.jpg
-./images/cap_20260903_091804_557.jpg
 ./images/cap_20260903_091808_060.jpg
-./images/cap_20260903_092056_051.jpg
 ./images/cap_20260903_092103_081.jpg
 ./images/cap_20260903_092213_553.jpg
 ./images/cap_20260903_092714_045.jpg
@@ -65,7 +62,6 @@
 ./images/cap_20260903_093216_051.jpg
 ./images/cap_20260903_093718_642.jpg
 ./images/cap_20260903_094221_593.jpg
-./images/cap_20260903_094305_061.jpg
 ./images/cap_20260903_094308_549.jpg
 ./images/cap_20260903_094312_051.jpg
 ./images/cap_20260903_094315_097.jpg
