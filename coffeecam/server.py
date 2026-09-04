@@ -425,13 +425,29 @@ def _annot_store_path() -> Path:
     return _annot_captures_dir() / "annotations.jsonl"
 
 
+def _safe_capture_path(rel: str) -> Path | None:
+    """Resolve ``rel`` under the captures dir, guarding against ``..`` traversal.
+
+    Returns the absolute path (which may not exist), or ``None`` for an empty rel
+    or one that escapes the captures dir.
+    """
+    if not isinstance(rel, str) or not rel.strip():
+        return None
+    base = _annot_captures_dir().resolve()
+    path = (base / rel).resolve()
+    if path != base and base not in path.parents:
+        return None
+    return path
+
+
 def _annot_queue():
     """Ordered labeling queue for the current query params.
 
     Returns ``(frames, counts, picked, captures_dir)`` where ``frames`` is the
-    JSON-ready list, ``picked`` is the parallel list of ``(rel, FrameRef,
-    labeled)`` so ``/annotate/frame/<i>`` and ``/suggest/<i>`` can resolve ``i``
-    against the exact same ordering.
+    JSON-ready list and ``picked`` is the parallel list of ``(rel, FrameRef,
+    labeled)``. Nothing outside this request should index ``picked`` by
+    position: ``/annotate/frame.jpg`` and ``/annotate/suggest.json`` address
+    frames by ``?rel=`` because the queue shifts as frames are labeled.
 
     Params: ``filter=unlabeled|labeled|watched|all`` (default unlabeled),
     ``stride=N`` (take every Nth frame, default 1), ``start=YYYY-MM-DD``.
@@ -503,9 +519,10 @@ def _fullness_queue():
     """Ordered fill-level labeling queue for the current query params.
 
     Returns ``(frames, counts, picked, captures_dir)`` where ``picked`` is the
-    parallel list of ``(rel, box, level, skip)`` so ``/fullness/crop/<i>`` and
-    ``/fullness/frame/<i>`` resolve ``i`` against the same ordering. ``box`` is
-    the frame's first GT ``coffee_pot`` box (needed to crop).
+    parallel list of ``(rel, box, level, skip)``. ``/fullness/crop.jpg`` and
+    ``/fullness/frame.jpg`` address frames by ``?rel=`` (not by position in
+    ``picked``); the crop route re-reads the GT ``coffee_pot`` box from the
+    annotation store by ``rel``.
 
     Only frames with a positive box in ``annotations.jsonl`` are eligible.
     Params: ``filter=unlabeled|labeled|watched|all`` (default unlabeled),
@@ -754,7 +771,7 @@ function show() {
     ' labeled &middot; ' + (counts.watched || 0) + ' watched &middot; ' +
     (queue.length - pos) + ' in queue';
   view.onload = () => { fitCanvas(); if (!f.labeled && !f.skip) getSuggestion(); };
-  view.src = '/annotate/frame/' + f.i + '.jpg?' + qs();
+  view.src = '/annotate/frame.jpg?rel=' + encodeURIComponent(f.rel) + '&' + qs();
 }
 function showDone() {
   $('stage').style.display = 'none';
@@ -773,7 +790,7 @@ function showDone() {
 }
 async function getSuggestion() {
   try {
-    const r = await fetch('/annotate/suggest/' + queue[pos].i + '.json?' + qs());
+    const r = await fetch('/annotate/suggest.json?rel=' + encodeURIComponent(queue[pos].rel) + '&' + qs());
     if (!r.ok) return;
     const d = await r.json();
     suggestion = d.source === 'model' ? d.boxes : null;
@@ -973,8 +990,8 @@ function show() {
     (queue.length - pos) + ' in queue';
   // Blank first so a stale crop never lingers under the next frame's label.
   $('crop').removeAttribute('src'); $('frame').removeAttribute('src');
-  $('crop').src = '/fullness/crop/' + f.i + '.jpg?' + qs();
-  $('frame').src = '/fullness/frame/' + f.i + '.jpg?' + qs();
+  $('crop').src = '/fullness/crop.jpg?rel=' + encodeURIComponent(f.rel) + '&' + qs();
+  $('frame').src = '/fullness/frame.jpg?rel=' + encodeURIComponent(f.rel) + '&' + qs();
 }
 function showDone() {
   $('imgs').style.display = 'none';
@@ -1355,30 +1372,33 @@ def create_app(start_worker: bool = True) -> Flask:
         frames, counts, _, _ = _annot_queue()
         return jsonify({"frames": frames, "counts": counts})
 
-    @app.get("/annotate/frame/<int:i>.jpg")
-    def annotate_frame(i: int):
-        _, _, picked, captures_dir = _annot_queue()
-        if i < 0 or i >= len(picked):
-            return Response("frame out of range", status=404, mimetype="text/plain")
-        path = captures_dir / picked[i][0]
+    @app.get("/annotate/frame.jpg")
+    def annotate_frame():
+        # Addressed by ``rel`` (not a positional queue index): the browser froze
+        # its queue at load and every save shifts the ``unlabeled`` indices, so a
+        # bare ``i`` served the wrong frame. ``no-store`` because ``rel`` is a
+        # stable key we must never serve a stale image for.
+        path = _safe_capture_path(request.args.get("rel", ""))
+        if path is None:
+            return Response("bad rel", status=400, mimetype="text/plain")
         if not path.exists():
             return Response("frame gone", status=404, mimetype="text/plain")
         return Response(
             path.read_bytes(),
             mimetype="image/jpeg",
-            headers={"Cache-Control": "private, max-age=300"},
+            headers={"Cache-Control": "no-store"},
         )
 
-    @app.get("/annotate/suggest/<int:i>.json")
-    def annotate_suggest(i: int):
+    @app.get("/annotate/suggest.json")
+    def annotate_suggest():
         if _model is None:
             return jsonify({"error": "detector not loaded"}), 503
-        _, _, picked, captures_dir = _annot_queue()
-        if i < 0 or i >= len(picked):
-            return jsonify({"error": "frame out of range"}), 404
+        path = _safe_capture_path(request.args.get("rel", ""))
+        if path is None or not path.exists():
+            return jsonify({"error": "frame not found"}), 404
         from PIL import Image as _Image
 
-        with _Image.open(captures_dir / picked[i][0]) as im:
+        with _Image.open(path) as im:
             frame = im.convert("RGB")
         det, _strong = detect_on_frame(frame, _model, conf=_arg_float("conf", DEFAULT_CONF))
         if det is None:
@@ -1501,29 +1521,34 @@ def create_app(start_worker: bool = True) -> Flask:
             counts[lvl] = store_counts.get(lvl, 0)
         return jsonify({"frames": frames, "counts": counts})
 
-    @app.get("/fullness/crop/<int:i>.jpg")
-    def fullness_crop(i: int):
-        _, _, picked, captures_dir = _fullness_queue()
-        if i < 0 or i >= len(picked):
-            return Response("frame out of range", status=404, mimetype="text/plain")
-        rel, box, _lvl, _skip = picked[i]
-        jpeg = _fullness_crop_jpeg(captures_dir / rel, box)
-        if jpeg is None:
-            return Response("frame gone", status=404, mimetype="text/plain")
-        return Response(jpeg, mimetype="image/jpeg",
-                        headers={"Cache-Control": "private, max-age=300"})
+    @app.get("/fullness/crop.jpg")
+    def fullness_crop():
+        # Addressed by ``rel`` for the same reason as ``/annotate/frame.jpg``.
+        from coffeecam import annotations
 
-    @app.get("/fullness/frame/<int:i>.jpg")
-    def fullness_full_frame(i: int):
-        _, _, picked, captures_dir = _fullness_queue()
-        if i < 0 or i >= len(picked):
-            return Response("frame out of range", status=404, mimetype="text/plain")
-        rel = picked[i][0]
-        jpeg = _fullness_crop_jpeg(captures_dir / rel, None, full=True)
+        rel = request.args.get("rel", "")
+        path = _safe_capture_path(rel)
+        if path is None:
+            return Response("bad rel", status=400, mimetype="text/plain")
+        ann = annotations.load(_annot_store_path()).get(rel)
+        if ann is None or not ann.boxes:
+            return Response("no box for frame", status=404, mimetype="text/plain")
+        jpeg = _fullness_crop_jpeg(path, ann.boxes[0])
         if jpeg is None:
             return Response("frame gone", status=404, mimetype="text/plain")
         return Response(jpeg, mimetype="image/jpeg",
-                        headers={"Cache-Control": "private, max-age=300"})
+                        headers={"Cache-Control": "no-store"})
+
+    @app.get("/fullness/frame.jpg")
+    def fullness_full_frame():
+        path = _safe_capture_path(request.args.get("rel", ""))
+        if path is None:
+            return Response("bad rel", status=400, mimetype="text/plain")
+        jpeg = _fullness_crop_jpeg(path, None, full=True)
+        if jpeg is None:
+            return Response("frame gone", status=404, mimetype="text/plain")
+        return Response(jpeg, mimetype="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
 
     @app.post("/fullness/label")
     def fullness_label():

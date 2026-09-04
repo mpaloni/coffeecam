@@ -4,6 +4,11 @@
 timer and serves every stage over HTTP, so the detector and crop are visible now
 and a real fullness classifier can slot in later without touching the server.
 
+> How the detector and fullness classifier are actually invoked — weight
+> resolution, the `prepare_crop` bridge, inference calls, outputs — is in
+> **`model-pipeline.md`**. (The ASCII diagram just below predates `prepare_crop`
+> and imgsz 640; `model-pipeline.md` is current.)
+
 ```
 snapshot ─▶ apply_transform ─▶ match_training_frame ─▶ detect_pot ─▶ frame.crop ─▶ FullnessEstimator
            (rotate 180 +       (black-pad to train    (YOLO, imgsz   (bbox mapped   (BrightnessFullness
@@ -61,8 +66,8 @@ a training set. Full design: `docs/annotate-endpoint-plan.md`.
 |---|---|
 | `GET /annotate` | the labeling page |
 | `GET /annotate/queue.json` | `{frames:[{i,rel,ts,labeled,skip,boxes}], counts}`; params `filter`, `stride`, `start=YYYY-MM-DD` |
-| `GET /annotate/frame/<i>.jpg` | raw frame bytes, no box drawn (`i` indexes the current queue) |
-| `GET /annotate/suggest/<i>.json` | `{boxes, source, conf}` from the loaded detector; `503` if no model |
+| `GET /annotate/frame.jpg?rel=<rel>` | raw frame bytes, no box drawn; addressed by `rel` (traversal-guarded), `Cache-Control: no-store` |
+| `GET /annotate/suggest.json?rel=<rel>` | `{boxes, source, conf}` from the loaded detector; `503` if no model |
 | `POST /annotate/label` | `{rel, boxes}` → upsert the sidecar row (`[]` = negative) |
 | `POST /annotate/label/delete` | `{rel}` → `{removed: bool}` (also un-skips a watched row) |
 | `POST /annotate/skip` | `{rel}` → mark one frame watched |

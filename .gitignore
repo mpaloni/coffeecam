@@ -4,6 +4,9 @@ crops/
 captures/
 # derived by coffeecam.fullness_dataset, rebuilt on demand
 fullness_dataset/
+# derived by coffeecam.annotation_audit, rebuilt on demand
+annotation_audit.csv
+audit_contact/
 dataset/images/*
 !dataset/images/kahvi.png
 !dataset/images/*_shift_x*_y*.png

@@ -155,7 +155,9 @@ def test_queue_empty_when_no_captures_dir(client, tmp_path, monkeypatch):
     body = resp.get_json()
     assert body["frames"] == []
     assert body["counts"] == {"total": 0, "labeled": 0, "watched": 0, "remaining": 0}
-    assert client.get("/annotate/frame/0.jpg").status_code == 404
+    assert client.get(
+        "/annotate/frame.jpg?rel=2026-08-31/070008_549.jpg"
+    ).status_code == 404
 
 
 def test_queue_lists_unlabeled_then_drops_labeled(client, captures_env):
@@ -196,13 +198,30 @@ def test_queue_stride_and_start(client, captures_env):
     assert started["counts"]["total"] == 1
 
 
-def test_annotate_frame_serves_raw_bytes(client, captures_env):
+def test_annotate_frame_serves_raw_bytes_by_rel(client, captures_env):
     raw = (captures_env / "2026-08-31/070008_549.jpg").read_bytes()
-    resp = client.get("/annotate/frame/0.jpg")
+    resp = client.get("/annotate/frame.jpg?rel=2026-08-31/070008_549.jpg")
     assert resp.status_code == 200
     assert resp.mimetype == "image/jpeg"
     assert resp.data == raw
-    assert client.get("/annotate/frame/9.jpg").status_code == 404
+    # never cache a rel-keyed image — a stale one is exactly the old bug
+    assert resp.headers["Cache-Control"] == "no-store"
+    assert client.get("/annotate/frame.jpg?rel=2026-08-31/nope.jpg").status_code == 404
+    assert client.get("/annotate/frame.jpg").status_code == 400  # missing rel
+    assert client.get("/annotate/frame.jpg?rel=../../etc/passwd").status_code == 400
+
+
+def test_annotate_frame_by_rel_is_stable_across_saves(client, captures_env):
+    """The regression: labeling one frame must not shift which bytes another
+    rel serves (the positional-index bug shifted every later index down one)."""
+    want = (captures_env / "2026-09-01/101558_558.jpg").read_bytes()
+    before = client.get("/annotate/frame.jpg?rel=2026-09-01/101558_558.jpg").data
+    assert before == want
+    r = client.post("/annotate/label", json={"rel": "2026-08-31/070008_549.jpg",
+                                             "boxes": [[10, 20, 100, 120]]})
+    assert r.status_code == 200
+    after = client.get("/annotate/frame.jpg?rel=2026-09-01/101558_558.jpg").data
+    assert after == want
 
 
 def test_label_negative_round_trips(client, captures_env):
@@ -237,16 +256,16 @@ def test_label_delete_puts_frame_back_in_queue(client, captures_env):
 
 
 def test_suggest_503_without_model_then_returns_box(client, captures_env):
-    assert client.get("/annotate/suggest/0.json").status_code == 503
+    assert client.get("/annotate/suggest.json?rel=2026-08-31/070008_549.jpg").status_code == 503
 
     server._model = _FakeModel(_Box([100, 80, 240, 300], 0.9))
-    body = client.get("/annotate/suggest/0.json").get_json()
+    body = client.get("/annotate/suggest.json?rel=2026-08-31/070008_549.jpg").get_json()
     assert body["source"] == "model"
     assert len(body["boxes"]) == 1 and len(body["boxes"][0]) == 4
     assert body["conf"] == pytest.approx(0.9, abs=0.05)
 
     server._model = _FakeModel(None)
-    assert client.get("/annotate/suggest/0.json").get_json()["source"] == "none"
+    assert client.get("/annotate/suggest.json?rel=2026-08-31/070008_549.jpg").get_json()["source"] == "none"
 
 
 def test_skip_drops_frame_from_unlabeled_and_into_watched(client, captures_env):
@@ -360,12 +379,16 @@ def test_fullness_label_absent(client, fullness_env):
 
 
 def test_fullness_crop_and_frame_jpeg(client, fullness_env):
-    crop = client.get("/fullness/crop/0.jpg")
+    rel = "2026-08-31/070008_549.jpg"
+    crop = client.get(f"/fullness/crop.jpg?rel={rel}")
     assert crop.status_code == 200 and crop.headers["Content-Type"] == "image/jpeg"
-    frame = client.get("/fullness/frame/0.jpg")
+    assert crop.headers["Cache-Control"] == "no-store"
+    frame = client.get(f"/fullness/frame.jpg?rel={rel}")
     assert frame.status_code == 200 and frame.headers["Content-Type"] == "image/jpeg"
     assert len(crop.get_data()) < len(frame.get_data())  # 96px crop is smaller
-    assert client.get("/fullness/crop/9.jpg").status_code == 404
+    # a rel with no box row -> 404 from the crop route
+    assert client.get("/fullness/crop.jpg?rel=2026-08-31/180042_126.jpg").status_code == 404
+    assert client.get("/fullness/crop.jpg?rel=../secrets.jpg").status_code == 400
 
 
 def test_fullness_skip_and_delete(client, fullness_env):
