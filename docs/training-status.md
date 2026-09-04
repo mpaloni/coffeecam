@@ -10,6 +10,16 @@ is on `main`, 217 tests passing).
 
 ## Current state
 
+> **2026-09-04 — the 0.603 below is on a leaky split.** The night dataset
+> experiments (`docs/dataset-experiments-log.md`) showed the per-frame hash split
+> lets same-session frames into both train and test. On a **session-held-out**
+> split (whole capture sessions held out) trackB-v1 scores **mAP50 0.161 /
+> mAP50-95 0.091** — that is the honest generalisation number. Retrained
+> session-clean models (realbase-sess, trackB-sess) reach ~0.46–0.49 session
+> mAP50 but were **not promoted** (selected on a noisy 63-frame session-val).
+> Synthetic augmentation was shown to be a wash at 325 reals. Next lever:
+> imgsz-960 (needs the worker2 pod rebuilt) and more distinct capture sessions.
+
 - **Live model:** `models/CHECKPOINT` → `runs/detect/runs/trackB-v1` (`weights/best.pt`,
   md5-identical to the loose `models/best-trackB-v1.pt`). `coffeecam-web.service` **restarted
   on it 2026-09-02** — `/compare.json?set=test` live shows checkpoint 36/3/4, matching
