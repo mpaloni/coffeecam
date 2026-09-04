@@ -26,9 +26,11 @@ fullness-v1 vs the brightness heuristic over the held-out test split.
 
 /summary[.gif] renders every captured frame so far into one animated GIF, each
 frame annotated with the current detector's result box (query params: set,
-annotate, frames, ms, scale, conf, rebuild). ?set=captures (default) | train |
+annotate, gt, frames, ms, scale, conf, rebuild). ?set=captures (default) | train |
 val | test picks the image set — the dataset splits point the annotator at the
-promoted, YOLO-labelled frames. /summary.json returns the build metadata.
+promoted, YOLO-labelled frames. ?gt=1 additionally draws each split frame's
+YOLO ground-truth box in cyan (no effect on ?set=captures). /summary.json
+returns the build metadata.
 
 /compare[.gif] stitches two or more detectors' result boxes side by side on the
 same frames (query params: model=NAME=run_or_pt repeatable — default is the
@@ -225,6 +227,7 @@ def _summary_args() -> dict:
     return dict(
         frameset=frameset,
         annotate=_arg_bool("annotate", True),
+        gt=_arg_bool("gt", False),
         max_frames=_arg_int("frames", 160),
         ms=_arg_int("ms", DEFAULT_DURATION_MS),
         scale=_arg_float("scale", 0.6),
@@ -233,7 +236,7 @@ def _summary_args() -> dict:
     )
 
 
-def _build_summary(*, frameset: str, annotate: bool, max_frames: int, ms: int, scale: float, conf: float, force: bool):
+def _build_summary(*, frameset: str, annotate: bool, gt: bool, max_frames: int, ms: int, scale: float, conf: float, force: bool):
     """Cached wrapper around `summary.build_summary_gif`. Rebuilds when the
     parameters change, on `?rebuild=1`, or once the cached GIF is older than
     COFFEECAM_SUMMARY_TTL seconds (default 300) so new captures roll in."""
@@ -241,7 +244,7 @@ def _build_summary(*, frameset: str, annotate: bool, max_frames: int, ms: int, s
     ttl = float(os.environ.get("COFFEECAM_SUMMARY_TTL", "300"))
     captures_dir = Path(os.environ.get("COFFEECAM_CAPTURES_DIR", DEFAULT_CAPTURES_DIR))
     dataset_dir = Path(os.environ.get("COFFEECAM_DATASET_DIR", DEFAULT_DATASET_DIR))
-    sig = (str(captures_dir), str(dataset_dir), frameset, annotate, max_frames, ms, round(scale, 3), round(conf, 3))
+    sig = (str(captures_dir), str(dataset_dir), frameset, annotate, gt, max_frames, ms, round(scale, 3), round(conf, 3))
     with _summary_lock:
         cached = _summary_cache
         if cached and not force and cached["sig"] == sig and (time.time() - cached["at"]) < ttl:
@@ -255,6 +258,7 @@ def _build_summary(*, frameset: str, annotate: bool, max_frames: int, ms: int, s
             max_frames=max_frames,
             duration_ms=ms,
             scale=scale,
+            gt=gt,
         )
         meta = {**meta, "model_ready": _model is not None, "cache_ttl_s": ttl}
         _summary_cache = {"sig": sig, "gif": gif, "meta": meta, "at": time.time()}

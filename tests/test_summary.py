@@ -13,6 +13,7 @@ from coffeecam.summary import (
     collect_split_frames,
     detect_on_frame,
     resolve_frames,
+    _render_frame,
     _sample,
 )
 
@@ -216,6 +217,35 @@ def test_build_summary_gif_over_a_split(dataset):
 def test_build_summary_gif_split_missing_raises(dataset):
     with pytest.raises(SummaryEmpty):
         build_summary_gif(frameset="val", dataset_dir=dataset, model=None)
+
+
+def test_gt_boxes_pixel_converts_yolo_label(dataset):
+    from coffeecam.summary import _gt_boxes_pixel
+
+    lbl = dataset / "labels" / "cap_20260831_131814_558.txt"  # "0 0.5 0.5 0.2 0.2"
+    assert _gt_boxes_pixel(lbl, 424, 353) == [(170, 141, 254, 212)]
+
+
+def test_build_summary_gif_gt_mode_draws_label_boxes(dataset):
+    from coffeecam.summary import _BOX_GT
+
+    _, meta = build_summary_gif(frameset="test", dataset_dir=dataset, model=None, gt=True)
+    # 2 of the 3 test frames have a label file on disk
+    assert meta["ground_truth_frames"] == 2
+
+    def has_color(im, rgb):
+        return any(c == rgb for _n, c in im.getcolors(maxcolors=1 << 24))
+
+    refs = collect_split_frames("test", dataset)
+    labelled, _ = _render_frame(refs[0], model=None, conf=0.25, scale=1.0, index=1, n=1, gt=True)
+    unlabelled, _ = _render_frame(refs[2], model=None, conf=0.25, scale=1.0, index=1, n=1, gt=True)
+    assert has_color(labelled, _BOX_GT)
+    assert not has_color(unlabelled, _BOX_GT)
+
+
+def test_gt_mode_is_a_noop_for_captures(captures):
+    _, meta = build_summary_gif(captures_dir=captures, frameset="captures", model=None, gt=True)
+    assert meta["ground_truth_frames"] == 0
 
 
 # --------------------------------------------------------------------------- #

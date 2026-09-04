@@ -10,6 +10,7 @@ writes an animated GIF.
     .venv/bin/python -m coffeecam.summary                       # annotated, -> summary.gif
     .venv/bin/python -m coffeecam.summary --no-annotate --ms 80
     .venv/bin/python -m coffeecam.summary --max-frames 120 --scale 0.75
+    .venv/bin/python -m coffeecam.summary --set train --gt --no-annotate  # dataset GT boxes
 
 No ffmpeg needed; Pillow writes the GIF directly. The Flask server serves the
 same thing at ``/summary`` (see `coffeecam.server`).
@@ -50,6 +51,17 @@ _FONT = ImageFont.load_default(size=13)
 
 _BOX_STRONG = (255, 64, 64)
 _BOX_WEAK = (255, 165, 40)
+_BOX_GT = (80, 200, 255)  # ground-truth label box (dataset splits only)
+
+
+def _gt_boxes_pixel(label_path: Path, img_w: int, img_h: int) -> list[tuple[int, int, int, int]]:
+    """Pixel ``(x1, y1, x2, y2)`` boxes from a YOLO ``.txt`` label file."""
+    from coffeecam.dataset import bbox_yolo_to_pixel, read_label
+
+    out = []
+    for _cls, cx, cy, bw, bh in read_label(label_path):
+        out.append(tuple(int(v) for v in bbox_yolo_to_pixel(cx, cy, bw, bh, img_w, img_h)))
+    return out
 
 
 class SummaryEmpty(RuntimeError):
@@ -175,8 +187,15 @@ def _label(draw: ImageDraw.ImageDraw, xy, text, *, fg, bg, anchor) -> None:
     draw.text(xy, text, fill=fg, font=_FONT, anchor=anchor)
 
 
-def _render_frame(ref: FrameRef, *, model, conf: float, scale: float, index: int, n: int) -> tuple[Image.Image, str]:
+def _render_frame(
+    ref: FrameRef, *, model, conf: float, scale: float, index: int, n: int, gt: bool = False
+) -> tuple[Image.Image, str]:
     im = Image.open(ref.path).convert("RGB")
+    img_w, img_h = im.size
+
+    gt_boxes: list[tuple[int, int, int, int]] = []
+    if gt and ref.label_path is not None and ref.label_path.is_file():
+        gt_boxes = _gt_boxes_pixel(ref.label_path, img_w, img_h)
 
     det: Detection | None = None
     strong = False
@@ -203,6 +222,13 @@ def _render_frame(ref: FrameRef, *, model, conf: float, scale: float, index: int
     elif model is not None:
         _label(draw, (im.width - 4, 4), "no box", fg=(210, 210, 210), bg=(40, 40, 40), anchor="ra")
 
+    for x1, y1, x2, y2 in gt_boxes:
+        if scale != 1.0:
+            x1, y1, x2, y2 = (int(v * scale) for v in (x1, y1, x2, y2))
+        draw.rectangle((x1, y1, x2, y2), outline=_BOX_GT, width=2)
+    if gt_boxes:
+        _label(draw, (4, im.height - 4), "GT", fg=(10, 10, 10), bg=_BOX_GT, anchor="ld")
+
     _label(draw, (4, 4), ref.ts_label, fg=(255, 255, 255), bg=(0, 0, 0), anchor="la")
     _label(draw, (im.width - 4, im.height - 4), f"{index}/{n}",
            fg=(185, 185, 185), bg=(0, 0, 0), anchor="rd")
@@ -220,11 +246,14 @@ def build_summary_gif(
     max_frames: int = DEFAULT_MAX_FRAMES,
     duration_ms: int = DEFAULT_DURATION_MS,
     scale: float = 1.0,
+    gt: bool = False,
 ) -> tuple[bytes, dict]:
     """Build the timelapse GIF. ``frameset`` picks which images to stitch
     (``"captures"`` default, or a ``"train"``/``"val"``/``"test"`` dataset split).
     Pass ``model`` to annotate each frame with the detector's result box; leave it
-    ``None`` for a plain timelapse."""
+    ``None`` for a plain timelapse. ``gt=True`` also draws the YOLO ground-truth
+    box (cyan) for dataset-split frames that have a label file — no effect on the
+    ``"captures"`` set, which has no labels."""
     t0 = time.perf_counter()
     refs = resolve_frames(frameset, captures_dir=captures_dir, dataset_dir=dataset_dir)
     if not refs:
@@ -233,9 +262,14 @@ def build_summary_gif(
 
     picked = _sample(refs, max_frames)
     counts = {"strong": 0, "weak_only": 0, "no_box": 0}
+    gt_frames = 0
     images: list[Image.Image] = []
     for i, ref in enumerate(picked, 1):
-        im, kind = _render_frame(ref, model=model, conf=conf, scale=scale, index=i, n=len(picked))
+        im, kind = _render_frame(
+            ref, model=model, conf=conf, scale=scale, index=i, n=len(picked), gt=gt
+        )
+        if gt and ref.label_path is not None and ref.label_path.is_file():
+            gt_frames += 1
         counts[kind] += 1
         images.append(im)
 
@@ -267,6 +301,8 @@ def build_summary_gif(
     }
     if model is not None:
         meta["detections"] = counts
+    if gt:
+        meta["ground_truth_frames"] = gt_frames
 
     if out is not None:
         Path(out).write_bytes(gif)
@@ -285,6 +321,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--conf", type=float, default=DEFAULT_CONF, help="confidence floor for a 'strong' box")
     ap.add_argument("--no-annotate", action="store_true", help="plain timelapse, don't run the detector")
+    ap.add_argument("--gt", action="store_true",
+                    help="draw the YOLO ground-truth box (cyan); dataset splits only")
     args = ap.parse_args(argv)
 
     model = None
@@ -304,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
             max_frames=args.max_frames,
             duration_ms=args.ms,
             scale=args.scale,
+            gt=args.gt,
         )
     except SummaryEmpty as exc:
         ap.error(str(exc))

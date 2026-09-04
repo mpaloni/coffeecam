@@ -25,3 +25,5 @@ scratchpad/
 !models/*.pt
 # ...but not this one — local-only, superseded by best-trackB-v1.pt
 models/best-balanced-v1.pt
+# derived by scratchpad/ds_summary.py
+dataset_summary/
