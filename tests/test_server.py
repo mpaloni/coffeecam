@@ -412,3 +412,68 @@ def test_fullness_skip_queue(client, fullness_env):
     assert body["counts"] == {"total": 2, "labeled": 1, "watched": 1, "remaining": 0,
                               "empty": 1, "low": 0, "half": 0, "high": 0, "full": 0,
                               "absent": 0}
+
+
+# --- /history: persisted fullness-state timeline -----------------------------
+
+def _hist_result(level, ts):
+    frame = Image.new("RGB", (200, 160), (100, 100, 100))
+    return PipelineResult(
+        ts=ts, frame=frame, normalized=None, bounded=frame.copy(),
+        crop=frame.crop((20, 30, 90, 120)),
+        detection=Detection(20, 30, 90, 120, 0.42),
+        fullness=FullnessResult(level, 0.5, "model:test", {}),
+        timings_ms={"detect": 12.3}, errors=[],
+    )
+
+
+def test_record_history_logs_every_tick_and_dumps_on_transition(tmp_path, monkeypatch):
+    monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path))
+    from coffeecam import state_history
+
+    ts = datetime(2026, 9, 7, 8, 0, 0)
+    prev = server._record_history(_hist_result("empty", ts), None)
+    prev = server._record_history(_hist_result("empty", ts.replace(minute=1)), prev)
+    prev = server._record_history(_hist_result("full", ts.replace(minute=2)), prev)
+    assert prev == "full"
+
+    rows = state_history.load_rows(tmp_path, date="2026-09-07")
+    assert [r["level"] for r in rows] == ["empty", "empty", "full"]
+    # transition row (empty -> full) carries an artifact; the steady ticks don't
+    assert "artifact" not in rows[0] and "artifact" not in rows[1]
+    art = rows[2]["artifact"]
+    assert art == "2026-09-07/080200_frame.jpg"
+    assert (tmp_path / "pipeline" / art).is_file()
+    assert (tmp_path / "pipeline" / "2026-09-07" / "080200_crop.jpg").is_file()
+
+
+def test_record_history_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path))
+    monkeypatch.setenv("COFFEECAM_STATE_HISTORY", "0")
+    from coffeecam import state_history
+
+    server._record_history(_hist_result("empty", datetime(2026, 9, 7, 8, 0, 0)), None)
+    assert state_history.available_dates(tmp_path) == []
+
+
+def test_history_routes(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path))
+    ts = datetime(2026, 9, 7, 8, 0, 0)
+    prev = None
+    for minute, lvl in [(0, "empty"), (1, "empty"), (2, "low"), (3, "full")]:
+        prev = server._record_history(_hist_result(lvl, ts.replace(minute=minute)), prev)
+
+    body = client.get("/history.json").get_json()
+    assert body["date"] == "2026-09-07" and body["dates"] == ["2026-09-07"]
+    assert body["rows"] == 4
+    assert [r["level"] for r in body["runs"]] == ["empty", "low", "full"]
+
+    raw = client.get("/history/rows.json?date=2026-09-07").get_json()
+    assert len(raw["rows"]) == 4
+
+    art = body["runs"][1]["artifact"]
+    assert client.get(f"/history/artifact/{art}").status_code == 200
+    assert client.get("/history/artifact/../../secrets.jpg").status_code in (404, 415)
+    assert client.get("/history/artifact/2026-09-07/nope.txt").status_code == 415
+
+    assert client.get("/history").status_code == 200

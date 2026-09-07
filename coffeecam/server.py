@@ -19,6 +19,14 @@ Env:
   COFFEECAM_CAPTURES_DIR  frame dir for /summary + /annotate (default captures/)
   COFFEECAM_DATASET_DIR   output dir for POST /annotate/promote (default dataset/)
   COFFEECAM_ARTIFACTS_DIR  dir served read-only at /artifacts (default scratchpad/)
+  COFFEECAM_STATE_HISTORY  1/0 append per-tick fullness row (default 1)
+  COFFEECAM_TRANSITION_ARTIFACTS  1/0 dump frame+crop on level change (default 1)
+
+/history is the persisted fullness-state timeline: one JSONL row per pipeline
+tick under captures/pipeline/state-YYYY-MM-DD.jsonl (always on, independent of
+COFFEECAM_HARVEST), and on every level change the transition frame+crop are
+saved alongside. /history renders a segmented day bar + transition thumbnails;
+/history.json returns run-collapsed segments, /history/rows.json the raw ticks.
 
 /artifacts is a read-only gallery of COFFEECAM_ARTIFACTS_DIR (images + text/json/
 log) — drop a file in, refresh, no restart. /fullness/compare.gif renders
@@ -56,6 +64,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+from coffeecam import state_history
 from coffeecam.capture import DEFAULT_SOURCE, fetch_snapshot
 from coffeecam.pipeline import DEFAULT_CONF, PipelineResult, run_pipeline
 from coffeecam.summary import (
@@ -123,15 +132,46 @@ def _store(result: PipelineResult) -> None:
         _latest_jpeg = jpegs
 
 
-def _harvest(result: PipelineResult) -> None:
+def _pipeline_dir() -> Path:
+    """`<captures>/pipeline/` — home of the HARVEST dump, the state-history
+    JSONL, and the transition frame/crop artifacts."""
+    return _annot_captures_dir() / "pipeline"
+
+
+def _harvest(result: PipelineResult) -> str:
+    """Write ``<stem>_frame.jpg`` / ``_crop.jpg`` / ``.json`` for this tick under
+    ``<captures>/pipeline/<day>/`` and return the frame's path relative to
+    ``<captures>/pipeline`` (e.g. ``2026-09-07/142301_frame.jpg``)."""
     day = result.ts.strftime("%Y-%m-%d")
     stem = result.ts.strftime("%H%M%S")
-    base = Path("captures/pipeline") / day
+    base = _pipeline_dir() / day
     base.mkdir(parents=True, exist_ok=True)
     (base / f"{stem}_frame.jpg").write_bytes(_encode(result.frame))
     if result.crop is not None:
         (base / f"{stem}_crop.jpg").write_bytes(_encode(result.crop))
     (base / f"{stem}.json").write_text(json.dumps(_result_dict(result), indent=None))
+    return f"{day}/{stem}_frame.jpg"
+
+
+def _record_history(result: PipelineResult, prev_level: str | None) -> str | None:
+    """Append a state-history row for this tick; on a level change vs. the
+    previous tick also dump the transition frame/crop artifacts. Best-effort —
+    never raises into the worker loop. Returns this tick's level."""
+    level = result.fullness.level
+    if not _env_bool("COFFEECAM_STATE_HISTORY", True):
+        return level
+    changed = prev_level is not None and level != prev_level
+    try:
+        artifact = None
+        if changed and _env_bool("COFFEECAM_TRANSITION_ARTIFACTS", True):
+            try:
+                artifact = _harvest(result)
+            except Exception as exc:  # noqa: BLE001
+                print(f"transition artifact failed: {exc}")
+        state_history.append_row(_annot_captures_dir(), result, artifact=artifact)
+    except Exception as exc:  # noqa: BLE001
+        print(f"state history failed: {exc}")
+    return level
 
 
 def _worker(model) -> None:
@@ -141,6 +181,7 @@ def _worker(model) -> None:
 
     estimator = default_estimator()  # load the fullness model once, not per frame
     print(f"[fullness] estimator: {type(estimator).__name__}")
+    prev_level: str | None = None
     while True:
         try:
             snap = fetch_snapshot(cfg["source_url"])
@@ -150,6 +191,7 @@ def _worker(model) -> None:
                 normalize=cfg["normalize"], conf=cfg["conf"],
             )
             _store(result)
+            prev_level = _record_history(result, prev_level)
             if cfg["harvest"]:
                 try:
                     _harvest(result)
@@ -1153,6 +1195,81 @@ fetch('/viewer/manifest.json' + location.search).then(r => r.ok
 """
 
 
+_HISTORY_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam history</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+ body{font:14px system-ui,sans-serif;margin:0;background:#14161a;color:#e6e6e6}
+ header{padding:10px 16px;background:#1d2026;border-bottom:1px solid #2c2f36}
+ h1{font-size:15px;margin:0;font-weight:600} .muted{color:#8a909a} a{color:#6ab0ff}
+ .wrap{max-width:1000px;margin:0 auto;padding:16px}
+ select{font:13px system-ui;padding:5px 8px;background:#2c2f36;color:#e6e6e6;border:1px solid #3a3f47;border-radius:6px}
+ .bar{display:flex;height:46px;width:100%;border:1px solid #2c2f36;border-radius:8px;overflow:hidden;margin:14px 0}
+ .seg{position:relative;min-width:2px}
+ .seg span{position:absolute;left:3px;top:2px;font:10px ui-monospace,monospace;color:#0b0d10;white-space:nowrap}
+ .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#8a909a;margin-bottom:8px}
+ .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+ table{border-collapse:collapse;width:100%;font:12px ui-monospace,Menlo,monospace}
+ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #2c2f36;vertical-align:top}
+ th{color:#8a909a;font-weight:600}
+ td img{display:block;width:150px;height:auto;border:1px solid #2c2f36;border-radius:4px}
+ .lvl{font-weight:600}
+</style>
+<header><h1>coffeecam history
+ <span class=muted>&middot; fullness state timeline &middot;
+ <a href="/viewer">/viewer</a> &middot; <a href="/history.json">json</a> &middot; <a href="/">/</a></span></h1></header>
+<div class=wrap>
+ <label class=muted>day <select id=date></select></label>
+ <span class=muted id=summary></span>
+ <div class=legend id=legend></div>
+ <div class=bar id=bar></div>
+ <table><thead><tr><th>transition</th><th>at</th><th>held</th><th>frames</th><th>frame</th></tr></thead>
+  <tbody id=rows></tbody></table>
+ <p class=muted id=empty hidden>No state history for this day yet.</p>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = {empty:'#5b6472', low:'#c98b2e', half:'#d9c04a', high:'#7bc46b',
+                full:'#3f9e57', unknown:'#3a3f47', absent:'#2c2f36', error:'#c04040'};
+const fmt = s => s ? s.slice(11, 19) : '?';
+const held = s => s == null ? '?' : s >= 3600 ? (s/3600).toFixed(1)+'h'
+  : s >= 60 ? (s/60).toFixed(1)+'m' : s.toFixed(0)+'s';
+
+async function load(date) {
+  const q = date ? '?date=' + encodeURIComponent(date) : '';
+  const d = await (await fetch('/history.json' + q)).json();
+  const sel = $('date');
+  sel.innerHTML = (d.dates || []).map(x =>
+    '<option' + (x === d.date ? ' selected' : '') + '>' + x + '</option>').join('');
+  const runs = d.runs || [];
+  $('empty').hidden = runs.length > 0;
+  $('summary').textContent = runs.length
+    ? ' \\u00b7 ' + d.rows + ' ticks \\u00b7 ' + runs.length + ' segments' : '';
+  const seen = [...new Set(runs.map(r => r.level))];
+  $('legend').innerHTML = seen.map(l =>
+    '<span><i style="background:' + (COLORS[l] || '#666') + '"></i>' + l + '</span>').join('');
+  const total = runs.reduce((a, r) => a + (r.duration_s || 0), 0) || 1;
+  $('bar').innerHTML = runs.map(r => {
+    const w = ((r.duration_s || 0) / total * 100).toFixed(3);
+    return '<div class=seg title="' + r.level + '  ' + fmt(r.start) + ' \\u2192 ' + fmt(r.end) +
+      '  (' + held(r.duration_s) + ')" style="width:' + w + '%;background:' +
+      (COLORS[r.level] || '#666') + '"><span>' + r.level + '</span></div>';
+  }).join('');
+  $('rows').innerHTML = runs.map((r, i) => {
+    const prev = i ? runs[i - 1].level : '\\u2014';
+    const img = r.artifact
+      ? '<a href="/history/artifact/' + r.artifact + '"><img loading=lazy src="/history/artifact/' +
+        r.artifact + '"></a>' : '';
+    return '<tr><td class=lvl>' + prev + ' \\u2192 <span style="color:' +
+      (COLORS[r.level] || '#aaa') + '">' + r.level + '</span></td><td>' + fmt(r.start) +
+      '</td><td>' + held(r.duration_s) + '</td><td>' + r.frames + '</td><td>' + img + '</td></tr>';
+  }).join('');
+}
+$('date').onchange = e => load(e.target.value);
+load().catch(err => { $('summary').textContent = 'load failed: ' + err; });
+</script>
+"""
+
+
 _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
 <meta http-equiv=refresh content="{refresh}">
 <style>
@@ -1179,7 +1296,7 @@ _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
  <figure><figcaption>4 · crop &rarr; classify</figcaption><img src="/crop.jpg?t={ts}"></figure>
 </div>
 <pre>timings_ms: {timings}
-{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level) · <a href="/artifacts" style="color:#6ab0ff">/artifacts</a> (scratch gallery)</pre>
+{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/history" style="color:#6ab0ff">/history</a> (state timeline) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level) · <a href="/artifacts" style="color:#6ab0ff">/artifacts</a> (scratch gallery)</pre>
 """
 
 
@@ -1364,6 +1481,43 @@ def create_app(start_worker: bool = True) -> Flask:
         except IndexError:
             return Response("frame out of range", status=404, mimetype="text/plain")
         return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
+
+    # --- /history: persisted fullness-state timeline ----------------------
+
+    @app.get("/history")
+    def history_page():
+        return Response(_HISTORY_PAGE, mimetype="text/html")
+
+    @app.get("/history.json")
+    def history_json():
+        captures = _annot_captures_dir()
+        dates = state_history.available_dates(captures)
+        date = request.args.get("date") or (dates[-1] if dates else None)
+        limit = _arg_int("limit", 0) or None
+        rows = state_history.load_rows(captures, date=date, limit=limit)
+        return jsonify({
+            "date": date,
+            "dates": dates,
+            "rows": len(rows),
+            "runs": state_history.runs_from_rows(rows),
+        })
+
+    @app.get("/history/rows.json")
+    def history_rows_json():
+        """Raw per-tick rows (no run collapsing) for the given ?date=."""
+        captures = _annot_captures_dir()
+        date = request.args.get("date")
+        limit = _arg_int("limit", 0) or None
+        return jsonify({"rows": state_history.load_rows(captures, date=date, limit=limit)})
+
+    @app.get("/history/artifact/<path:name>")
+    def history_artifact(name: str):
+        if Path(name).suffix.lower() not in {".jpg", ".jpeg", ".json"}:
+            return Response("unsupported file type", status=415, mimetype="text/plain")
+        try:
+            return send_from_directory(_pipeline_dir().resolve(), name, max_age=0)
+        except NotADirectoryError:
+            return Response("not found", status=404, mimetype="text/plain")
 
     # --- /annotate labeling endpoint ---------------------------------------
 

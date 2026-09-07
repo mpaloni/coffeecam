@@ -31,9 +31,24 @@ Run it:
 | `GET /fullness.json` | `{level, score, method, detail}` |
 | `GET /pipeline.json` | everything + `timings_ms` + `errors[]` + `stale_seconds` |
 | `GET /healthz` | `200` ok / `503` degraded (camera unreachable or result stale) |
+| `GET /history` | HTML: fullness-state timeline for a day — segmented bar + transition thumbnails |
+| `GET /history.json?date=&limit=` | `{date, dates[], rows, runs:[{level,start,end,duration_s,frames,artifact}]}` (consecutive same-level ticks collapsed) |
+| `GET /history/rows.json?date=&limit=` | raw per-tick rows, no collapsing |
+| `GET /history/artifact/<day>/<stem>_frame.jpg` | frame/crop/json saved on a level change (traversal-guarded) |
+
+### `/history` — persisted state timeline
+
+Every pipeline tick appends one JSONL row (`ts, level, score, method, conf,
+bbox, timings_ms, errors`) to `captures/pipeline/state-YYYY-MM-DD.jsonl` —
+always on, independent of `COFFEECAM_HARVEST`, ~150 B/row. On every **level
+change** the transition tick's `frame.jpg` + `crop.jpg` + `.json` are also
+written under `captures/pipeline/<day>/` and linked from that run's row, so the
+frames where the model flipped state (the interesting ones to debug) are always
+kept. Toggle with `COFFEECAM_STATE_HISTORY` / `COFFEECAM_TRANSITION_ARTIFACTS`.
 
 Env: `COFFEECAM_SOURCE_URL`, `COFFEECAM_REFRESH_SECS` (10), `COFFEECAM_CONF`
 (0.15), `COFFEECAM_NORMALIZE` (1), `COFFEECAM_HARVEST` (0),
+`COFFEECAM_STATE_HISTORY` (1), `COFFEECAM_TRANSITION_ARTIFACTS` (1),
 `COFFEECAM_HOST`/`COFFEECAM_PORT` (`0.0.0.0`/`8000`).
 
 Deploy: `deploy/systemd/coffeecam-web.service` (user unit, same pattern as the
