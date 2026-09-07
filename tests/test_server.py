@@ -477,3 +477,25 @@ def test_history_routes(client, tmp_path, monkeypatch):
     assert client.get("/history/artifact/2026-09-07/nope.txt").status_code == 415
 
     assert client.get("/history").status_code == 200
+
+
+def test_history_long_routes(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COFFEECAM_CAPTURES_DIR", str(tmp_path))
+    for day in ("2026-09-06", "2026-09-07"):
+        prev = None
+        base = datetime.fromisoformat(f"{day}T07:00:00")
+        for minute, lvl in [(0, "empty"), (10, "empty"), (20, "lots"), (30, "empty")]:
+            prev = server._record_history(_hist_result(lvl, base.replace(minute=minute)), prev)
+
+    d = client.get("/history/long.json?days=1").get_json()
+    assert d["days"] == 1 and d["dates"] == ["2026-09-07"]
+    assert {p["date"] for p in d["points"]} == {"2026-09-07"}
+    p0, p2 = d["points"][0], d["points"][2]
+    assert p0["tod"] == 7 * 3600 and p0["l"] == "empty" and "s" in p0
+    assert p2["tod"] == 7 * 3600 + 20 * 60 and p2["l"] == "lots"
+
+    d7 = client.get("/history/long.json?days=7").get_json()
+    assert d7["dates"] == ["2026-09-06", "2026-09-07"]
+    assert len(d7["points"]) == 8
+
+    assert client.get("/history/long").status_code == 200

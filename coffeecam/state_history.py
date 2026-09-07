@@ -100,6 +100,37 @@ def available_dates(captures_dir: Path | str) -> list[str]:
     return sorted(out)
 
 
+def recent_dates(captures_dir: Path | str, days: int) -> list[str]:
+    """The most recent ``days`` dates that have a state log (ascending)."""
+    ds = available_dates(captures_dir)
+    return ds[-days:] if days > 0 else ds
+
+
+def load_span(
+    captures_dir: Path | str, *, days: int, max_points: int | None = None
+) -> tuple[list[str], list[dict]]:
+    """Rows for the last ``days`` logged days, each tagged with ``_date``,
+    concatenated in chronological order. When ``max_points`` is set and the row
+    count exceeds it, evenly stride the rows down to roughly that many (transition
+    rows — those with an ``artifact`` — are always kept)."""
+    dates = recent_dates(captures_dir, days)
+    rows: list[dict] = []
+    for d in dates:
+        for r in load_rows(captures_dir, date=d):
+            r["_date"] = d
+            rows.append(r)
+    if max_points and len(rows) > max_points:
+        step = len(rows) / max_points
+        keep, acc = [], 0.0
+        for i, r in enumerate(rows):
+            if r.get("artifact") or i >= acc:
+                keep.append(r)
+                if i >= acc:
+                    acc += step
+        rows = keep
+    return dates, rows
+
+
 def load_rows(
     captures_dir: Path | str, *, date: str | None = None, limit: int | None = None
 ) -> list[dict]:

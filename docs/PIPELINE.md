@@ -34,6 +34,8 @@ Run it:
 | `GET /history` | HTML: fullness-state timeline for a day — segmented bar + transition thumbnails |
 | `GET /history.json?date=&limit=` | `{date, dates[], rows, runs:[{level,start,end,duration_s,frames,artifact}]}` (consecutive same-level ticks collapsed) |
 | `GET /history/rows.json?date=&limit=` | raw per-tick rows, no collapsing |
+| `GET /history/long?days=N` | HTML: fill-level graph over the last N logged days (default 7), one column per day, optional confidence overlay |
+| `GET /history/long.json?days=N&max=` | `{days, dates[], points:[{t,date,tod,s,l,p}]}`; `max` strides the payload down (default 4000, transitions kept) |
 | `GET /history/artifact/<day>/<stem>_frame.jpg` | frame/crop/json saved on a level change (traversal-guarded) |
 
 ### `/history` — persisted state timeline

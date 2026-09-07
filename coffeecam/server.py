@@ -1221,7 +1221,8 @@ _HISTORY_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam history</
 </style>
 <header><h1>coffeecam history
  <span class=muted>&middot; fullness state timeline &middot;
- <a href="/viewer">/viewer</a> &middot; <a href="/history.json">json</a> &middot; <a href="/">/</a></span></h1></header>
+ <a href="/viewer">/viewer</a> &middot; <a href="/history/long">/history/long</a> (N-day graph) &middot;
+ <a href="/history.json">json</a> &middot; <a href="/">/</a></span></h1></header>
 <div class=wrap>
  <label class=muted>day <select id=date></select></label>
  <span class=muted id=summary></span>
@@ -1276,6 +1277,155 @@ load().catch(err => { $('summary').textContent = 'load failed: ' + err; });
 """
 
 
+_LONGHISTORY_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam history (long)</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+ body{font:14px system-ui,sans-serif;margin:0;background:#14161a;color:#e6e6e6}
+ header{padding:10px 16px;background:#1d2026;border-bottom:1px solid #2c2f36}
+ h1{font-size:15px;margin:0;font-weight:600} .muted{color:#8a909a} a{color:#6ab0ff}
+ .wrap{max-width:1180px;margin:0 auto;padding:16px}
+ select{font:13px system-ui;padding:5px 8px;background:#2c2f36;color:#e6e6e6;border:1px solid #3a3f47;border-radius:6px}
+ label.c{font-size:12px;color:#8a909a;margin-left:14px}
+ .chart{position:relative;margin:14px 0;background:#1a1d22;border:1px solid #2c2f36;border-radius:8px}
+ .chart svg{display:block;width:100%;height:auto}
+ .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#8a909a}
+ .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+ #readout{position:absolute;pointer-events:none;background:#0e1013;border:1px solid #3a3f47;border-radius:6px;
+   padding:6px 8px;font:12px ui-monospace,Menlo,monospace;white-space:pre;display:none;z-index:2}
+ text{fill:#8a909a;font:11px ui-monospace,monospace}
+ .gl{stroke:#2c2f36} .day{stroke:#3a3f47;stroke-dasharray:3 3}
+</style>
+<header><h1>coffeecam history <span class=muted>(long)</span>
+ <span class=muted>&middot; fullness over the last N days &middot;
+ <a href="/history">/history</a> (single day) &middot; <a href="/history/long.json">json</a> &middot;
+ <a href="/">/</a></span></h1></header>
+<div class=wrap>
+ <label class=muted>days <select id=days>
+   <option>3</option><option selected>7</option><option>14</option><option>30</option></select></label>
+ <label class=c><input type=checkbox id=conf> confidence (p)</label>
+ <span class=muted id=summary></span>
+ <div class=chart id=chart><div id=readout></div></div>
+ <div class=legend id=legend></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = {empty:'#5b6472', low:'#c98b2e', some:'#c98b2e', half:'#d9c04a',
+                high:'#7bc46b', lots:'#3f9e57', full:'#3f9e57',
+                unknown:'#3a3f47', absent:'#2c2f36', error:'#c04040'};
+const SVGNS = 'http://www.w3.org/2000/svg';
+const W = 1160, H = 360, L = 44, R = 14, T = 14, B = 44;
+const params = new URLSearchParams(location.search);
+if (params.get('days')) $('days').value = params.get('days');
+
+const el = (n, a) => { const e = document.createElementNS(SVGNS, n);
+  for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+let pts = [], dates = [], geom = null;
+
+async function load() {
+  const days = $('days').value;
+  history.replaceState(null, '', '?days=' + days);
+  const d = await (await fetch('/history/long.json?days=' + days)).json();
+  pts = d.points || []; dates = d.dates || [];
+  $('summary').textContent = ' \\u00b7 ' + pts.length + ' points over ' + dates.length + ' days';
+  const seen = [...new Set(pts.map(p => p.l))];
+  $('legend').innerHTML = seen.map(l =>
+    '<span><i style="background:' + (COLORS[l] || '#666') + '"></i>' + l + '</span>').join('') +
+    '<span class=muted>&nbsp; y = fill 0..1 (score); each column = one day, 00:00\\u201324:00</span>';
+  draw();
+}
+
+function draw() {
+  const c = $('chart');
+  [...c.querySelectorAll('svg')].forEach(s => s.remove());
+  const svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H });
+  const nd = dates.length || 1;
+  const colW = (W - L - R) / nd;
+  const x = (date, sec) => L + dates.indexOf(date) * colW + (sec / 86400) * colW;
+  const y = s => T + (1 - s) * (H - T - B);
+  geom = { x, y, colW };
+
+  // y gridlines at the fill anchors
+  for (const [s, name] of [[0,'empty'],[0.33,'some'],[0.5,'half'],[0.83,'lots'],[1,'full']]) {
+    svg.appendChild(el('line', { class:'gl', x1:L, x2:W-R, y1:y(s), y2:y(s) }));
+    const tx = el('text', { x:4, y:y(s)+3 }); tx.textContent = name; svg.appendChild(tx);
+  }
+  // day columns + labels
+  dates.forEach((dt, i) => {
+    const gx = L + i * colW;
+    if (i) svg.appendChild(el('line', { class:'day', x1:gx, x2:gx, y1:T, y2:H-B }));
+    const tx = el('text', { x:gx+4, y:H-B+16 }); tx.textContent = dt.slice(5); svg.appendChild(tx);
+    const noon = el('text', { x:gx+colW/2-14, y:H-B+30 }); noon.textContent = '12:00';
+    noon.setAttribute('opacity', 0.5); svg.appendChild(noon);
+  });
+
+  // stepped score path, broken across day boundaries and null scores
+  let dpath = '', started = false, prevDate = null;
+  for (const p of pts) {
+    if (p.s == null) { started = false; continue; }
+    const px = x(p.date, p.tod), py = y(p.s);
+    if (!started || p.date !== prevDate) { dpath += ' M' + px + ' ' + py; started = true; }
+    else { dpath += ' H' + px + ' V' + py; }
+    prevDate = p.date;
+  }
+  svg.appendChild(el('path', { d:dpath, fill:'none', stroke:'#6ab0ff', 'stroke-width':1.5 }));
+
+  if ($('conf').checked) {
+    let cp = '', on = false;
+    for (const p of pts) {
+      if (p.p == null) { on = false; continue; }
+      const px = x(p.date, p.tod), py = y(p.p);
+      cp += (on ? ' L' : ' M') + px + ' ' + py; on = true;
+    }
+    svg.appendChild(el('path', { d:cp, fill:'none', stroke:'#e0a020',
+      'stroke-width':1, opacity:0.55 }));
+  }
+
+  // dots
+  for (const p of pts) {
+    if (p.s == null) continue;
+    svg.appendChild(el('circle', { cx:x(p.date, p.tod), cy:y(p.s), r:2,
+      fill:COLORS[p.l] || '#888' }));
+  }
+
+  const hit = el('rect', { x:L, y:T, width:W-L-R, height:H-T-B, fill:'transparent' });
+  svg.appendChild(hit);
+  const guide = el('line', { class:'gl', y1:T, y2:H-B, stroke:'#6ab0ff', opacity:0 });
+  svg.appendChild(guide);
+  c.appendChild(svg);
+
+  const ro = $('readout');
+  svg.addEventListener('mousemove', ev => {
+    const r = svg.getBoundingClientRect();
+    const mx = (ev.clientX - r.left) / r.width * W;
+    let best = null, bd = 1e9;
+    for (const p of pts) {
+      if (p.s == null) continue;
+      const d = Math.abs(geom.x(p.date, p.tod) - mx);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (!best || bd > geom.colW) { ro.style.display = 'none'; guide.setAttribute('opacity', 0); return; }
+    const gx = geom.x(best.date, best.tod);
+    guide.setAttribute('x1', gx); guide.setAttribute('x2', gx); guide.setAttribute('opacity', 0.5);
+    ro.textContent = best.t.replace('T', '  ') + '\\n' + best.l +
+      '   score ' + (best.s == null ? '-' : best.s.toFixed(2)) +
+      '   p ' + (best.p == null ? '-' : best.p.toFixed(2));
+    ro.style.display = 'block';
+    ro.style.left = Math.min(ev.clientX - r.left + 12, r.width - 190) + 'px';
+    ro.style.top = (ev.clientY - r.top + 12) + 'px';
+  });
+  svg.addEventListener('mouseleave', () => {
+    ro.style.display = 'none'; guide.setAttribute('opacity', 0);
+  });
+}
+
+$('days').onchange = load;
+$('conf').onchange = draw;
+load().catch(err => { $('summary').textContent = 'load failed: ' + err; });
+</script>
+"""
+
+
 _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
 <meta http-equiv=refresh content="{refresh}">
 <style>
@@ -1302,7 +1452,7 @@ _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
  <figure><figcaption>4 · crop &rarr; classify</figcaption><img src="/crop.jpg?t={ts}"></figure>
 </div>
 <pre>timings_ms: {timings}
-{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/history" style="color:#6ab0ff">/history</a> (state timeline) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level) · <a href="/artifacts" style="color:#6ab0ff">/artifacts</a> (scratch gallery)</pre>
+{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/history" style="color:#6ab0ff">/history</a> (state timeline) · <a href="/history/long" style="color:#6ab0ff">/history/long</a> (N-day graph) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level) · <a href="/artifacts" style="color:#6ab0ff">/artifacts</a> (scratch gallery)</pre>
 """
 
 
@@ -1507,6 +1657,36 @@ def create_app(start_worker: bool = True) -> Flask:
             "rows": len(rows),
             "runs": state_history.runs_from_rows(rows),
         })
+
+    @app.get("/history/long")
+    def history_long_page():
+        return Response(_LONGHISTORY_PAGE, mimetype="text/html")
+
+    @app.get("/history/long.json")
+    def history_long_json():
+        """Fullness points across the last ?days= logged days (default 7, capped
+        60). ?max= strides the payload down (default 4000, transitions kept).
+        Each point: ``{t, date, tod (secs past midnight), s (score), l, p}``."""
+        days = max(1, min(_arg_int("days", 7), 60))
+        cap = _arg_int("max", 4000)
+        dates, rows = state_history.load_span(
+            _annot_captures_dir(), days=days, max_points=cap or None
+        )
+        pts = []
+        for r in rows:
+            ts = r.get("ts")
+            if not ts:
+                continue
+            t = ts.split("T", 1)
+            tod = 0
+            if len(t) == 2:
+                hh, mm, ss = (t[1].split(":") + ["0", "0", "0"])[:3]
+                tod = int(hh) * 3600 + int(mm) * 60 + int(float(ss))
+            pts.append({
+                "t": ts, "date": r.get("_date", t[0]), "tod": tod,
+                "s": r.get("score"), "l": r.get("level"), "p": r.get("p"),
+            })
+        return jsonify({"days": days, "dates": dates, "points": pts})
 
     @app.get("/history/rows.json")
     def history_rows_json():

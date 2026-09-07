@@ -74,3 +74,20 @@ def test_load_rows_skips_malformed_lines(tmp_path):
     with path.open("a") as fh:
         fh.write("not json\n")
     assert [r["level"] for r in state_history.load_rows(tmp_path)] == ["empty"]
+
+
+def test_load_span_recent_and_stride(tmp_path):
+    for day, n in [("2026-09-05", 3), ("2026-09-06", 4), ("2026-09-07", 5)]:
+        base = datetime.fromisoformat(f"{day}T08:00:00")
+        for i in range(n):
+            state_history.append_row(tmp_path, _result("full", ts=base.replace(minute=i)))
+
+    assert state_history.recent_dates(tmp_path, 2) == ["2026-09-06", "2026-09-07"]
+
+    dates, rows = state_history.load_span(tmp_path, days=2)
+    assert dates == ["2026-09-06", "2026-09-07"]
+    assert len(rows) == 9 and all("_date" in r for r in rows)
+    assert [r["_date"] for r in rows[:4]] == ["2026-09-06"] * 4
+
+    _, capped = state_history.load_span(tmp_path, days=3, max_points=4)
+    assert 4 <= len(capped) <= 6  # strided down, transitions (none here) aside
