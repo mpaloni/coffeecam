@@ -114,6 +114,13 @@ brightness-heuristic placeholder.
 .venv/bin/python -m coffeecam.server        # http://<host>:8000/  (+ /pipeline.json, /crop.jpg, …)
 ```
 
+The server also logs every tick's fullness verdict to
+`captures/pipeline/state-<day>.jsonl` and serves it back: **`/history`** (one
+day, segmented bar + transition frames), **`/history/long?days=N`** (an N-day
+graph). `python -m coffeecam.backfill_history <day>` fills the log from stored
+frames; `python -m coffeecam.fullness_confidence` reports how confident the
+classifier is and lists the worst frames.
+
 Details, routes, env vars, and current model limitations: [`docs/PIPELINE.md`](docs/PIPELINE.md).
 
 ## Tests

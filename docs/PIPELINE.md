@@ -31,44 +31,7 @@ Run it:
 | `GET /fullness.json` | `{level, score, method, detail}` |
 | `GET /pipeline.json` | everything + `timings_ms` + `errors[]` + `stale_seconds` |
 | `GET /healthz` | `200` ok / `503` degraded (camera unreachable or result stale) |
-| `GET /history` | HTML: fullness-state timeline for a day — segmented bar + transition thumbnails |
-| `GET /history.json?date=&limit=` | `{date, dates[], rows, runs:[{level,start,end,duration_s,frames,artifact}]}` (consecutive same-level ticks collapsed) |
-| `GET /history/rows.json?date=&limit=` | raw per-tick rows, no collapsing |
-| `GET /history/long?days=N` | HTML: fill-level graph over the last N logged days (default 7), one column per day, optional confidence overlay |
-| `GET /history/long.json?days=N&max=` | `{days, dates[], points:[{t,date,tod,s,l,p}]}`; `max` strides the payload down (default 4000, transitions kept) |
-| `GET /history/artifact/<day>/<stem>_frame.jpg` | frame/crop/json saved on a level change (traversal-guarded) |
-
-### `/history` — persisted state timeline
-
-Every pipeline tick appends one JSONL row (`ts, level, score, method, conf,
-bbox, timings_ms, errors`) to `captures/pipeline/state-YYYY-MM-DD.jsonl` —
-always on, independent of `COFFEECAM_HARVEST`, ~150 B/row. On every **level
-change** the transition tick's `frame.jpg` + `crop.jpg` + `.json` are also
-written under `captures/pipeline/<day>/` and linked from that run's row, so the
-frames where the model flipped state (the interesting ones to debug) are always
-kept. Toggle with `COFFEECAM_STATE_HISTORY` / `COFFEECAM_TRANSITION_ARTIFACTS`.
-
-Backfill a past day from its stored frames (stop `coffeecam-web` first — both
-write the same log):
-
-```bash
-.venv/bin/python -m coffeecam.backfill_history 2026-09-07 --force
-```
-
-Replays every kept `captures/<day>/` frame through the pipeline
-(`transform=False`, they're already privacy-cropped) and writes rows +
-transition artifacts exactly as the live worker would have. Backfilled rows also
-carry `frame` (source capture path) and `p` (classifier top-1 probability).
-
-Confidence stats over the logs:
-
-```bash
-.venv/bin/python -m coffeecam.fullness_confidence --low 0.6 --limit 40 [--csv c.csv]
-```
-
-Prints the `p` distribution + histogram, per-level mean confidence and
-low-confidence share, detector-miss count (no box → static crop), and the
-lowest-confidence frames by path — the bad-image candidates.
+| `GET /history`, `/history/long`, … | fullness-state history — see [Fullness-state history](#fullness-state-history) below |
 
 Env: `COFFEECAM_SOURCE_URL`, `COFFEECAM_REFRESH_SECS` (10), `COFFEECAM_CONF`
 (0.15), `COFFEECAM_NORMALIZE` (1), `COFFEECAM_HARVEST` (0),
@@ -77,6 +40,102 @@ Env: `COFFEECAM_SOURCE_URL`, `COFFEECAM_REFRESH_SECS` (10), `COFFEECAM_CONF`
 
 Deploy: `deploy/systemd/coffeecam-web.service` (user unit, same pattern as the
 capture units). Needs a LAN route to `192.168.50.10:8888`.
+
+## Fullness-state history
+
+A record of what the classifier decided over time, so a bad run can be replayed
+and picked apart after the fact instead of only watched live.
+
+### The log
+
+Every pipeline tick appends one line to
+`captures/pipeline/state-YYYY-MM-DD.jsonl` (file keyed by the tick's own date, so
+a run across midnight splits cleanly). Always on, independent of
+`COFFEECAM_HARVEST`, ~150 B/row. Set `COFFEECAM_STATE_HISTORY=0` to disable.
+
+```jsonc
+{
+  "ts": "2026-09-07T14:23:01",       // tick time, second precision
+  "level": "lots",                   // classifier argmax class
+  "score": 0.83,                     // 0..1 fill scalar (prob-weighted), null if "absent"
+  "p": 0.51,                         // classifier top-1 probability (its confidence); null for Null/Brightness estimators
+  "method": "yolov8n-cls",
+  "conf": 0.94,                      // detector box confidence; null when the detector found nothing
+  "bbox": [281, 129, 360, 228],      // detector box in frame coords; null on a miss
+  "timings_ms": { "detect": 197.6, "classify": 17.6, ... },
+  "errors": [],
+  "frame": "2026-09-07/142301_552.jpg",   // source capture path — backfill only (the live worker keeps no frame)
+  "transition": true,                     // present only on rows where level changed vs. the previous tick
+  "artifact": "2026-09-07/142301_frame.jpg"  // ditto — the saved transition frame
+}
+```
+
+On every **level change** the transition tick's `frame.jpg` + `crop.jpg` +
+`.json` are also written under `captures/pipeline/<day>/` and referenced from the
+row — the frames where the model flipped state are always kept even with
+`COFFEECAM_HARVEST` off. Set `COFFEECAM_TRANSITION_ARTIFACTS=0` to skip the
+image dump (the row is still written).
+
+### `/history` — one day
+
+| route | content |
+|---|---|
+| `GET /history` | HTML: a segmented bar of the day's state runs (width ∝ time held, colour per level) + a table of transitions with the saved frame thumbnails |
+| `GET /history.json?date=&limit=` | `{date, dates[], rows, runs}` — consecutive same-level ticks collapsed into `runs:[{level, start, end, duration_s, frames, artifact}]`; `artifact` is the frame of the transition *into* that run |
+| `GET /history/rows.json?date=&limit=` | the raw per-tick rows, no collapsing |
+| `GET /history/artifact/<day>/<stem>_frame.jpg` | a saved transition frame / crop / json (traversal-guarded, jpg + json only) |
+
+`date` defaults to the most recent day with a log; `limit` keeps the last N ticks.
+
+### `/history/long` — N days
+
+| route | content |
+|---|---|
+| `GET /history/long?days=N` | HTML: inline-SVG graph of fill level over the last N logged days (default 7, max 60). One column per day (00:00→24:00), y = `score` 0..1, stepped line broken across day/gap boundaries, dots coloured by level. "confidence (p)" checkbox overlays the classifier probability. Hover for a `time · level · score · p` readout. |
+| `GET /history/long.json?days=N&max=` | `{days, dates[], points:[{t, date, tod, s, l, p}]}` where `tod` is seconds past midnight. `max` (default 4000) evenly strides the payload down for long spans; transition rows are always kept. |
+
+### Backfill
+
+Replay a past day's stored frames into the log — e.g. after adding the feature,
+or to reprocess with a new checkpoint:
+
+```bash
+.venv/bin/python -m coffeecam.backfill_history 2026-09-07 --force
+#   --captures-dir DIR   default captures/
+#   --conf F             detector confidence floor (default 0.15)
+#   --force              delete an existing state-<day>.jsonl first
+```
+
+Reads the kept frames from `captures/<day>/index.jsonl` (falls back to a
+`*.jpg` glob), runs each through `run_pipeline(..., transform=False)` — the
+stored frames are already privacy-cropped, so the rotate/crop step is skipped —
+and feeds the results through the same code path the live worker uses. Backfilled
+rows carry `frame` and `p`. **Stop `coffeecam-web` first**: both processes append
+the same day file, and only for *today*'s date (past days are safe while it
+runs).
+
+### Confidence stats
+
+```bash
+.venv/bin/python -m coffeecam.fullness_confidence
+#   --date YYYY-MM-DD   restrict to one day (repeatable); default: all logs
+#   --low F             low-confidence threshold (default 0.6)
+#   --limit N           how many worst frames to list (default 40)
+#   --csv PATH          also dump every row to CSV
+```
+
+Reads the state logs and reports, over the classifier's own top-1 probability
+(`p`):
+
+- overall distribution (min / percentiles / mean) and a coarse histogram
+- per-level mean `p` and the share below `--low` — the middle class is usually
+  the weak one
+- detector-miss count: when there's no box the classifier runs on the static
+  `DEFAULT_POT_BOX` crop, and its `p` there is a good "garbage in" signal
+- the lowest-`p` frames by path — bad-image candidates to eyeball
+
+Rows written before `p` existed show as "no p"; re-run the backfill to refresh
+them.
 
 ## `/annotate` — browser labeling
 

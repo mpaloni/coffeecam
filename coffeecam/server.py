@@ -26,7 +26,11 @@ Env:
 tick under captures/pipeline/state-YYYY-MM-DD.jsonl (always on, independent of
 COFFEECAM_HARVEST), and on every level change the transition frame+crop are
 saved alongside. /history renders a segmented day bar + transition thumbnails;
-/history.json returns run-collapsed segments, /history/rows.json the raw ticks.
+/history.json returns run-collapsed segments, /history/rows.json the raw ticks,
+/history/long[.json] a fill-level graph over the last ?days= logged days.
+Backfill a day from stored frames with `python -m coffeecam.backfill_history`;
+`python -m coffeecam.fullness_confidence` summarises classifier confidence.
+Full docs: docs/PIPELINE.md.
 
 /artifacts is a read-only gallery of COFFEECAM_ARTIFACTS_DIR (images + text/json/
 log) — drop a file in, refresh, no restart. /fullness/compare.gif renders
