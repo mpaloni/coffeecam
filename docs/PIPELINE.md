@@ -55,7 +55,18 @@ write the same log):
 
 Replays every kept `captures/<day>/` frame through the pipeline
 (`transform=False`, they're already privacy-cropped) and writes rows +
-transition artifacts exactly as the live worker would have.
+transition artifacts exactly as the live worker would have. Backfilled rows also
+carry `frame` (source capture path) and `p` (classifier top-1 probability).
+
+Confidence stats over the logs:
+
+```bash
+.venv/bin/python -m coffeecam.fullness_confidence --low 0.6 --limit 40 [--csv c.csv]
+```
+
+Prints the `p` distribution + histogram, per-level mean confidence and
+low-confidence share, detector-miss count (no box → static crop), and the
+lowest-confidence frames by path — the bad-image candidates.
 
 Env: `COFFEECAM_SOURCE_URL`, `COFFEECAM_REFRESH_SECS` (10), `COFFEECAM_CONF`
 (0.15), `COFFEECAM_NORMALIZE` (1), `COFFEECAM_HARVEST` (0),

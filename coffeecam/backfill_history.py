@@ -109,7 +109,8 @@ def backfill(
         level = result.fullness.level
         if prev_level is not None and level != prev_level:
             transitions += 1
-        prev_level = server._record_history(result, prev_level)
+        frame_rel = path.relative_to(captures_dir).as_posix()
+        prev_level = server._record_history(result, prev_level, frame_rel=frame_rel)
         counts[level] = counts.get(level, 0) + 1
         if (i + 1) % 25 == 0:
             print(f"  {i + 1}/{len(frames)}  {ts:%H:%M:%S}  {level}")

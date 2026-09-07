@@ -35,19 +35,32 @@ def history_dir(captures_dir: Path | str) -> Path:
     return Path(captures_dir) / "pipeline"
 
 
-def _row_from_result(result, *, artifact: str | None) -> dict:
+def _classifier_top1(f) -> float | None:
+    """Top-1 class probability from a ``ModelFullness`` result's ``detail.probs``
+    — the classifier's confidence in its own call. ``None`` for estimators that
+    don't expose a prob vector (Null/Brightness)."""
+    probs = (f.detail or {}).get("probs")
+    if not isinstance(probs, dict) or not probs:
+        return None
+    return round(max(probs.values()), 4)
+
+
+def _row_from_result(result, *, artifact: str | None, frame_rel: str | None) -> dict:
     d = result.detection
     f = result.fullness
     row = {
         "ts": result.ts.isoformat(timespec="seconds"),
         "level": f.level,
         "score": None if f.score is None else round(f.score, 3),
+        "p": _classifier_top1(f),  # classifier top-1 probability (confidence)
         "method": f.method,
-        "conf": None if d is None else round(d.confidence, 3),
+        "conf": None if d is None else round(d.confidence, 3),  # detector confidence
         "bbox": None if d is None else [int(v) for v in d.bbox],
         "timings_ms": result.timings_ms,
         "errors": list(result.errors),
     }
+    if frame_rel:
+        row["frame"] = frame_rel
     if artifact:
         row["transition"] = True
         row["artifact"] = artifact
@@ -58,10 +71,17 @@ def path_for(captures_dir: Path | str, when: datetime) -> Path:
     return history_dir(captures_dir) / f"{FILE_PREFIX}{when:%Y-%m-%d}{FILE_SUFFIX}"
 
 
-def append_row(captures_dir: Path | str, result, *, artifact: str | None = None) -> dict:
+def append_row(
+    captures_dir: Path | str,
+    result,
+    *,
+    artifact: str | None = None,
+    frame_rel: str | None = None,
+) -> dict:
     """Append one row for ``result`` and return it. Creates the day file and the
-    ``pipeline/`` dir on first use."""
-    row = _row_from_result(result, artifact=artifact)
+    ``pipeline/`` dir on first use. ``frame_rel`` records the source capture path
+    (set by the backfill; the live worker has no stored frame)."""
+    row = _row_from_result(result, artifact=artifact, frame_rel=frame_rel)
     dst = path_for(captures_dir, result.ts)
     dst.parent.mkdir(parents=True, exist_ok=True)
     with dst.open("a", encoding="utf-8") as fh:

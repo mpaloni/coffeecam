@@ -153,10 +153,13 @@ def _harvest(result: PipelineResult) -> str:
     return f"{day}/{stem}_frame.jpg"
 
 
-def _record_history(result: PipelineResult, prev_level: str | None) -> str | None:
+def _record_history(
+    result: PipelineResult, prev_level: str | None, *, frame_rel: str | None = None
+) -> str | None:
     """Append a state-history row for this tick; on a level change vs. the
     previous tick also dump the transition frame/crop artifacts. Best-effort —
-    never raises into the worker loop. Returns this tick's level."""
+    never raises into the worker loop. Returns this tick's level. ``frame_rel``
+    is set by the backfill to record the source capture path."""
     level = result.fullness.level
     if not _env_bool("COFFEECAM_STATE_HISTORY", True):
         return level
@@ -168,7 +171,9 @@ def _record_history(result: PipelineResult, prev_level: str | None) -> str | Non
                 artifact = _harvest(result)
             except Exception as exc:  # noqa: BLE001
                 print(f"transition artifact failed: {exc}")
-        state_history.append_row(_annot_captures_dir(), result, artifact=artifact)
+        state_history.append_row(
+            _annot_captures_dir(), result, artifact=artifact, frame_rel=frame_rel
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"state history failed: {exc}")
     return level
