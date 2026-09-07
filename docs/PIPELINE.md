@@ -46,6 +46,17 @@ written under `captures/pipeline/<day>/` and linked from that run's row, so the
 frames where the model flipped state (the interesting ones to debug) are always
 kept. Toggle with `COFFEECAM_STATE_HISTORY` / `COFFEECAM_TRANSITION_ARTIFACTS`.
 
+Backfill a past day from its stored frames (stop `coffeecam-web` first — both
+write the same log):
+
+```bash
+.venv/bin/python -m coffeecam.backfill_history 2026-09-07 --force
+```
+
+Replays every kept `captures/<day>/` frame through the pipeline
+(`transform=False`, they're already privacy-cropped) and writes rows +
+transition artifacts exactly as the live worker would have.
+
 Env: `COFFEECAM_SOURCE_URL`, `COFFEECAM_REFRESH_SECS` (10), `COFFEECAM_CONF`
 (0.15), `COFFEECAM_NORMALIZE` (1), `COFFEECAM_HARVEST` (0),
 `COFFEECAM_STATE_HISTORY` (1), `COFFEECAM_TRANSITION_ARTIFACTS` (1),

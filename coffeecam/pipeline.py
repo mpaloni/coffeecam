@@ -54,7 +54,12 @@ def run_pipeline(
     estimator: FullnessEstimator | None = None,
     normalize: bool = True,
     conf: float = DEFAULT_CONF,
+    transform: bool = True,
 ) -> PipelineResult:
+    """``transform=False`` treats ``snapshot`` as an already privacy-cropped
+    frame (rotate 180 + crop already applied) — used to replay stored
+    ``captures/`` frames through detect/crop/classify without transforming twice.
+    """
     estimator = estimator or default_estimator()
     timings: dict[str, float] = {}
     errors: list[str] = []
@@ -69,7 +74,10 @@ def run_pipeline(
         finally:
             timings[name] = round((time.perf_counter() - t0) * 1000, 1)
 
-    frame = _timed("transform", lambda: apply_transform(snapshot))
+    if transform:
+        frame = _timed("transform", lambda: apply_transform(snapshot))
+    else:
+        frame = _timed("transform", lambda: snapshot.convert("RGB"))
     if frame is None:  # transform failed — nothing downstream is meaningful
         return PipelineResult(
             ts=datetime.now(),

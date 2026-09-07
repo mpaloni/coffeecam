@@ -1228,8 +1228,9 @@ _HISTORY_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam history</
 </div>
 <script>
 const $ = id => document.getElementById(id);
-const COLORS = {empty:'#5b6472', low:'#c98b2e', half:'#d9c04a', high:'#7bc46b',
-                full:'#3f9e57', unknown:'#3a3f47', absent:'#2c2f36', error:'#c04040'};
+const COLORS = {empty:'#5b6472', low:'#c98b2e', some:'#c98b2e', half:'#d9c04a',
+                high:'#7bc46b', lots:'#3f9e57', full:'#3f9e57',
+                unknown:'#3a3f47', absent:'#2c2f36', error:'#c04040'};
 const fmt = s => s ? s.slice(11, 19) : '?';
 const held = s => s == null ? '?' : s >= 3600 ? (s/3600).toFixed(1)+'h'
   : s >= 60 ? (s/60).toFixed(1)+'m' : s.toFixed(0)+'s';

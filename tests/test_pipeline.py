@@ -120,6 +120,19 @@ def test_pipeline_without_normalize_uses_frame_coords_directly():
     assert r.detection.bbox == (10, 20, 80, 120)
 
 
+def test_pipeline_transform_false_skips_apply_transform(monkeypatch):
+    def boom(_img):
+        raise AssertionError("apply_transform must not run when transform=False")
+
+    monkeypatch.setattr("coffeecam.pipeline.apply_transform", boom)
+    model = FakeModel([_Box([10, 20, 80, 120], 0.9)])
+    frame_in = _snapshot(424, 353)
+    r = run_pipeline(frame_in, model=model, normalize=False, transform=False)
+    assert r.frame.size == (424, 353)  # used as-is, not cropped/rotated
+    assert r.detection.bbox == (10, 20, 80, 120)
+    assert r.errors == []
+
+
 def test_pipeline_no_detection_falls_back_to_static_crop():
     r = run_pipeline(_snapshot(), model=FakeModel([_Box([0, 0, 10, 10], 0.01)]), conf=0.5)
     assert r.detection is None
