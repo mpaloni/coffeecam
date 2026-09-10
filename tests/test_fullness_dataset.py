@@ -127,6 +127,35 @@ def test_jitter_box_stays_near_original():
         assert abs((x1 + x2) / 2 - 140) < 40 and abs((y1 + y2) / 2 - 145) < 40
 
 
+def test_absent_frame_without_box_is_kept(tmp_path):
+    """An ``absent`` fullness label on a box-less (negative) annotation row still
+    lands in the tree — cropped at DEFAULT_POT_BOX — instead of being skipped."""
+    captures = tmp_path / "captures"
+    annot, full = captures / "annotations.jsonl", captures / "fullness.jsonl"
+    for i in range(6):
+        rel = f"2026-09-0{i % 3 + 1}/{i:06d}.jpg"
+        p = captures / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (424, 353), (80, 80, 80)).save(p, "JPEG")
+        annotations.upsert(rel, [], store=annot)  # negative: no pot, no box
+        fullness_labels.upsert(rel, "absent", store=full)
+    # a watched /annotate row is still dropped even when labelled absent
+    watched = "2026-09-01/900000.jpg"
+    wp = captures / watched
+    wp.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (424, 353), (80, 80, 80)).save(wp, "JPEG")
+    annotations.upsert(watched, [], store=annot)
+    annotations.skip(watched, store=annot)
+    fullness_labels.upsert(watched, "absent", store=full)
+
+    out = tmp_path / "fds"
+    s = build(captures_dir=captures, out_dir=out, merge="coarse")
+    total_absent = sum(sp.get("absent", 0) for sp in s.counts.values())
+    assert total_absent == 6
+    assert s.skipped_no_box == 1  # only the watched frame
+    assert list(out.rglob("absent/*.jpg"))
+
+
 def test_remap_and_bad_merge():
     assert remap("full", "coarse") == "lots"
     assert remap("full", "none") == "full"

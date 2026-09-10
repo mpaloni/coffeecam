@@ -4,6 +4,11 @@ Reads ``captures/fullness.jsonl`` (fill level per frame) + ``captures/annotation
 (the GT ``coffee_pot`` box) and writes :func:`coffeecam.fullness_crop.prepare_crop`
 outputs into an ImageFolder tree ready for ``yolo classify``.
 
+``absent`` frames (carafe off the warmer) have no pot and so no GT box — they are
+kept anyway and cropped at ``fullness_crop.DEFAULT_POT_BOX`` (the fixed spot the
+carafe normally occupies), so the classifier learns "that spot, empty". A frame
+watched in ``/annotate`` (``annotations`` row with ``skip``) is still dropped.
+
 The split is the **same** deterministic hash-of-``rel`` as
 ``coffeecam.dataset.promote`` (`_split_bucket`, seed 0, 15/15), so a frame lands
 in the same split for the fullness task as for the detector — a brew event's
@@ -29,7 +34,7 @@ from PIL import Image
 
 from coffeecam import annotations, fullness_labels
 from coffeecam.dataset import _split_bucket, dest_name_for
-from coffeecam.fullness_crop import CROP_SIZE, prepare_crop
+from coffeecam.fullness_crop import CROP_SIZE, DEFAULT_POT_BOX, prepare_crop
 
 DEFAULT_OUT = Path("fullness_dataset")
 SPLITS = ("train", "val", "test")
@@ -167,15 +172,20 @@ def build(
         classes=classes,
     )
 
-    # Pass 1: resolve every usable frame to (rel, box, cls, bucket).
-    items: list[tuple[str, tuple, str, str]] = []
+    # Pass 1: resolve every usable frame to (rel, box, cls, bucket). ``box`` is
+    # None for an ``absent`` frame -> pass 2 crops it at DEFAULT_POT_BOX.
+    items: list[tuple[str, tuple | None, str, str]] = []
     for rel in sorted(labels):
         lab = labels[rel]
         if lab.skip or not lab.level:
             summary.skipped_watched += 1
             continue
         ann = anns.get(rel)
-        if ann is None or not ann.boxes or ann.skip:
+        is_absent = lab.level == fullness_labels.ABSENT
+        if ann is not None and ann.skip:
+            summary.skipped_no_box += 1
+            continue
+        if not is_absent and (ann is None or not ann.boxes):
             summary.skipped_no_box += 1
             continue
         if not (captures_dir / rel).exists():
@@ -183,7 +193,8 @@ def build(
             continue
         cls = remap(lab.level, merge)
         bucket = _split_bucket(rel, seed=seed, val_frac=val_frac, test_frac=test_frac)
-        items.append((rel, tuple(ann.boxes[0]), cls, bucket))
+        box = None if is_absent else tuple(ann.boxes[0])
+        items.append((rel, box, cls, bucket))
 
     # Per-class variant count for the train split (1 unless balancing).
     train_per_class = {c: 0 for c in classes}
@@ -207,8 +218,9 @@ def build(
             frame = im.convert("RGB")
         stem = dest_name_for(rel)[:-4]  # drop ".jpg"
         rng = _rng_for(rel, seed)
+        base = DEFAULT_POT_BOX if box is None else box
         for v in range(k):
-            crop_box = box if v == 0 else jitter_box(box, rng)
+            crop_box = base if v == 0 else jitter_box(base, rng)
             name = f"{stem}.jpg" if v == 0 else f"{stem}_j{v}.jpg"
             prepare_crop(frame, tuple(crop_box), size=crop_size).save(
                 out_dir / bucket / cls / name, "JPEG", quality=92
