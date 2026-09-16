@@ -6,8 +6,8 @@ and a real fullness classifier can slot in later without touching the server.
 
 > How the detector and fullness classifier are actually invoked — weight
 > resolution, the `prepare_crop` bridge, inference calls, outputs — is in
-> **`model-pipeline.md`**. (The ASCII diagram just below predates `prepare_crop`
-> and imgsz 640; `model-pipeline.md` is current.)
+> **[`MODELS.md`](MODELS.md)**. (The ASCII diagram just below predates
+> `prepare_crop` and imgsz 640; `MODELS.md` is current.)
 
 ```
 snapshot ─▶ apply_transform ─▶ match_training_frame ─▶ detect_pot ─▶ frame.crop ─▶ FullnessEstimator
@@ -141,7 +141,7 @@ them.
 ## `/annotate` — browser labeling
 
 The same server hosts a labeling UI that turns the raw frames in `captures/` into
-a training set. Full design: `docs/annotate-endpoint-plan.md`.
+a training set. Full design: [`ANNOTATION.md`](ANNOTATION.md).
 
 - **`GET /annotate`** — canvas over the frame: drag a `coffee_pot` box, corner
   handles + drag-to-move, arrow-key nudge (`Shift` = 10px). `Space` saves and

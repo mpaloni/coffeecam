@@ -1,9 +1,9 @@
 """Audit ``captures/annotations.jsonl`` for labels attached to the wrong frame.
 
-The ``/annotate`` browser labeler had a stale positional-index bug (see
-``docs/annotation-audit-handoff.md``): the image on the canvas could be several
-frames ahead of the ``rel`` the drawn box was saved against. This tool estimates
-the blast radius.
+The ``/annotate`` browser labeler had a stale positional-index bug, fixed
+2026-09-04 (see ``docs/ANNOTATION.md``): the image on the canvas could be
+several frames ahead of the ``rel`` the drawn box was saved against. This tool
+estimates the blast radius.
 
     .venv/bin/python -m coffeecam.annotation_audit --weights models/best-trackB-sess.pt
 
