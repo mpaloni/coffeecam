@@ -2,7 +2,7 @@
 # Export coffeecam to the public GitHub mirror (mpaloni/coffeecam) with
 # internal-only content stripped from the *entire history*, not just HEAD:
 #   - deploy/                 (systemd units naming homelab hosts)
-#   - docs/CAPTURE.md, PIPELINE.md, deployment.md, dataset-experiments-log.md
+#   - docs/deployment.md, dataset-experiments-log.md, dataset-experiments-tools/
 #   - TODO.md                 (internal dev notes, references deploy/ heavily)
 #   - dataset/images/, dataset/previews/, crops/   (raw camera captures)
 #   - captures/annotations.jsonl                   (bbox labels tied to capture timestamps)
@@ -28,8 +28,6 @@ SCRATCH_DIR="$(mktemp -d /tmp/coffeecam-github-export.XXXXXX)"
 
 EXCLUDE_PATHS=(
   deploy
-  docs/CAPTURE.md
-  docs/PIPELINE.md
   docs/deployment.md
   docs/dataset-experiments-log.md
   TODO.md

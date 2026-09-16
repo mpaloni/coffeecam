@@ -93,7 +93,7 @@ Stitch every shift preview into one animated GIF (box sweeps around the frame, e
 .venv/bin/python -m coffeecam.train --epochs 20
 ```
 
-Writes to `runs/detect/runs/<name>/weights/best.pt`; `models/CHECKPOINT` points at the promoted run. The live model is **`trackB-v1`** — `yolov8n` trained on 259 hand-labelled real frames + balanced augmentation (imgsz 640, `mosaic=0`, on k8s), scoring **mAP50 0.603 / mAP50-95 0.438 on 43 held-out real frames**. Usable but not solid; real labelled scene count is the bottleneck, so keep feeding the `/annotate` loop (imgsz 640 needs a box with more than ~2 GiB RAM — the homelab k8s workers, not the camera Pi).
+Writes to `runs/detect/runs/<name>/weights/best.pt`; `models/CHECKPOINT` points at the promoted run. The live model is **`best-v6-datafix-raw.pt`**, scoring **mAP50 0.982 / mAP50-95 0.667** on a session-held-out test split — see [`docs/TRAINING.md`](docs/TRAINING.md), which also covers the generalization-gap lesson that makes session-held-out (not per-frame) splits the only trustworthy eval. Real labelled scene/session diversity is the bottleneck, not frame count or augmentation — keep feeding the `/annotate` loop with *distinct* capture sessions (imgsz 640 needs a box with more than ~2 GiB RAM — the homelab k8s workers, not the camera Pi).
 
 **3. Detect + crop:**
 
