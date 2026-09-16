@@ -39,7 +39,8 @@ Env: `COFFEECAM_SOURCE_URL`, `COFFEECAM_REFRESH_SECS` (10), `COFFEECAM_CONF`
 `COFFEECAM_HOST`/`COFFEECAM_PORT` (`0.0.0.0`/`8000`).
 
 Deploy: `deploy/systemd/coffeecam-web.service` (user unit, same pattern as the
-capture units). Needs a LAN route to `192.168.50.10:8888`.
+capture units). Needs a LAN route to the camera address in `hosts.env`
+(currently `192.168.50.10:8888`).
 
 ## Fullness-state history
 

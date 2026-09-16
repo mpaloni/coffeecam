@@ -6,6 +6,8 @@ Detection + a placeholder fullness heuristic, for now. A trained fill-level mode
 
 Frames are pulled straight from the camera by `coffeecam/capture.py` (see [Capture](#capture) and [`docs/CAPTURE.md`](docs/CAPTURE.md)); the original dataset seed was a single screenshot (`dataset/images/kahvi.png`).
 
+Gitea (`git@gitea:manfred/coffeecam.git`) is the source of truth, with the full history — deploy configs, internal runbooks, dataset artifacts, model weights. [`github.com/mpaloni/coffeecam`](https://github.com/mpaloni/coffeecam) is a filtered public mirror (MIT-licensed); `scripts/export-github.sh` rebuilds it from Gitea, stripping homelab-internal paths and binary artifacts — see the exclusion list at the top of that script for exactly what's cut.
+
 ## Setup
 
 ```bash

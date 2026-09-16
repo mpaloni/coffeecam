@@ -6,9 +6,11 @@ privacy-cropped, for the dataset build. It replaces taking screenshots by hand.
 ## Camera / tunnel
 
 The camera lives on the office network and is **not routable from the homelab
-LAN**. It is exposed at `http://192.168.50.10:8888` by an SSH tunnel documented
-in homelab-docs `docs/runbooks/coffeecam-tunnel.md` (make it the persistent
-systemd-user variant on `.10` before relying on any of this):
+LAN**. It is exposed at `http://192.168.50.10:8888` (the real address lives in
+`hosts.env`, gitignored — see `hosts.env.example`; `coffeecam/hosts.py` loads
+it into `COFFEECAM_SOURCE_URL`) by an SSH tunnel documented in homelab-docs
+`docs/runbooks/coffeecam-tunnel.md` (make it the persistent systemd-user
+variant on `.10` before relying on any of this):
 
 | URL | Content |
 |---|---|
