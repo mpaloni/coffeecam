@@ -22,7 +22,9 @@
 set -euo pipefail
 
 GITEA_REMOTE="git@gitea:manfred/coffeecam.git"
-GITHUB_REMOTE="git@github.com:mpaloni/coffeecam.git"
+# github-coffeecam is an SSH config alias (~/.ssh/config) pinned to the
+# coffeecam-only deploy key, so this push can't use any other identity.
+GITHUB_REMOTE="git@github-coffeecam:mpaloni/coffeecam.git"
 SCRATCH_DIR="$(mktemp -d /tmp/coffeecam-github-export.XXXXXX)"
 
 EXCLUDE_PATHS=(
