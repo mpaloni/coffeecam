@@ -9,7 +9,7 @@ stage runs `fullness.default_estimator()` (`ModelFullness` when
 `models/FULLNESS_CHECKPOINT` resolves, else `NullFullness`).
 
 Env:
-  COFFEECAM_SOURCE_URL   camera base URL           (default http://192.168.50.10:8888)
+  COFFEECAM_SOURCE_URL   camera base URL           (default: see hosts.env / hosts.env.example)
   COFFEECAM_REFRESH_SECS seconds between runs      (default 10)
   COFFEECAM_CONF         detector confidence floor (default 0.15)
   COFFEECAM_NORMALIZE    1/0 black-pad to train ar (default 1)
@@ -102,6 +102,10 @@ _viewer_cache: dict | None = None
 _annot_lock = threading.Lock()
 # Same, for captures/fullness.jsonl (the /fullness label store).
 _fullness_lock = threading.Lock()
+# Lazily-loaded singleton for on-demand /fullness/suggest.json calls — separate
+# from the worker's own estimator instance (loaded fresh on first use, not at
+# startup, so the /fullness page works even before the worker thread ticks).
+_fullness_estimator = None
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -632,6 +636,18 @@ def _fullness_queue():
     return frames, counts, picked, captures_dir
 
 
+def _get_fullness_estimator():
+    """Lazy singleton `FullnessEstimator` for `/fullness/suggest.json`. Reloaded
+    only once per process; `NullFullness` (no weights yet) is cached too so a
+    fresh clone doesn't retry the resolve on every request."""
+    global _fullness_estimator
+    if _fullness_estimator is None:
+        from coffeecam.fullness import default_estimator
+
+        _fullness_estimator = default_estimator()
+    return _fullness_estimator
+
+
 def _fullness_crop_jpeg(frame_path: Path, box, *, full: bool = False) -> bytes | None:
     """JPEG bytes of ``prepare_crop(frame, box)`` (or the full frame when
     ``full``). ``None`` if the frame file is gone."""
@@ -974,6 +990,7 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
  </div>
  <div class=col>
   <div class=cap id=hdr>loading&hellip;</div>
+  <div class=cap id=model>&nbsp;</div>
   <div class=cap id=count></div>
   <button class=lvl id=lvl-1>1 &mdash; empty &nbsp;<span class=k>1</span></button>
   <button class=lvl id=lvl-2>2 &mdash; low &nbsp;<span class=k>2</span></button>
@@ -981,13 +998,16 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
   <button class=lvl id=lvl-4>4 &mdash; high &nbsp;<span class=k>4</span></button>
   <button class=lvl id=lvl-5>5 &mdash; full &nbsp;<span class=k>5</span></button>
   <button class=lvl id=lvl-absent>no pot in frame &nbsp;<span class=k>w</span></button>
+  <button class=lvl id=lvl-unsure>unsure / ambiguous &nbsp;<span class=k>u</span></button>
   <button id=skip>skip / watched &nbsp;<span class=k>s</span></button>
   <button id=del>delete saved label &nbsp;<span class=k>&#9003;</span></button>
   <div class=cap muted style="line-height:1.5">
    Crop loose but on the carafe &rarr; judge from whichever image is clearer.
    Crop on the wrong thing (wall, mug) &rarr; fix the box in <a href="/annotate">/annotate</a>
    or <b>skip</b> &mdash; don't label it. <b>skip</b> also when neither image is
-   legible. <b>no pot</b> = carafe genuinely off the warmer.</div>
+   legible. <b>no pot</b> = carafe genuinely off the warmer. <b>unsure</b> = the
+   crop is legible but even you can't call the level (glare, odd angle, blur,
+   mid-pour) &mdash; trains the model to say "unsure" instead of guessing.</div>
   <div class=row><button id=prev>&larr; prev</button><button id=next>next &rarr;</button></div>
   <button id=skiprest>skip rest of queue</button>
   <button id=reload>reload queue</button>
@@ -999,6 +1019,9 @@ _FULLNESS_PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam fullness
   <label class=f>stride <select id=stride>
     <option>1</option><option>2</option><option>3</option><option>5</option><option>10</option>
    </select></label>
+  <label class=f><input type=checkbox id=showmodel checked> show model prediction</label>
+  <label class=f><input type=checkbox id=sortconf> sort by lowest confidence
+   <span class=muted>(annotate these first)</span></label>
  </div>
 </div>
 <script>
@@ -1006,9 +1029,11 @@ const params = new URLSearchParams(location.search);
 const $ = id => document.getElementById(id);
 let queue = [], counts = {}, pos = 0;
 // 1-5 scale; index 0 unused so n maps straight to LEVELS[n]. 'absent' (no pot in
-// frame) is a separate label, keyed 'w', not part of the scale.
+// frame) and 'unsure' (legible but unjudgeable) are separate labels, keyed 'w'
+// and 'u', not part of the scale.
 const LEVELS = [null, 'empty', 'low', 'half', 'high', 'full'];
 const ABSENT = 'absent';
+const UNSURE = 'unsure';
 const DOT = ' \\u00b7 ';
 
 const qs = () => {
@@ -1016,6 +1041,13 @@ const qs = () => {
   p.set('filter', $('filter').value);
   p.set('stride', $('stride').value);
   if (params.get('start')) p.set('start', params.get('start'));
+  return p;
+};
+// Separate from qs(): the bulk model pass is opt-in (checkbox) and only
+// belongs on /fullness/queue.json, not the per-frame crop/frame image URLs.
+const queueQs = () => {
+  const p = qs();
+  if ($('sortconf').checked) { p.set('model', '1'); p.set('sort', 'confidence'); }
   return p;
 };
 
@@ -1026,16 +1058,49 @@ async function post(url, body) {
 }
 
 async function loadQueue() {
-  const r = await fetch('/fullness/queue.json?' + qs());
+  const r = await fetch('/fullness/queue.json?' + queueQs());
   const d = await r.json();
   queue = d.frames; counts = d.counts; pos = 0; show();
+}
+function fmtLevel(level) {
+  const n = LEVELS.indexOf(level);
+  return !level ? '' : (n > 0 ? n + ' \\u2014 ' + level : level);
+}
+async function showModel(f) {
+  const el = $('model');
+  if (!f || !$('showmodel').checked) { el.innerHTML = '&nbsp;'; return; }
+  // The bulk queue pass (sort-by-confidence) already carries model_level/
+  // model_conf for this frame; reuse it instead of a second request.
+  if (f.model_level !== undefined) {
+    return renderModel(f.model_level, f.model_conf, null, f.level);
+  }
+  el.textContent = 'model: \\u2026';
+  try {
+    const r = await fetch('/fullness/suggest.json?rel=' + encodeURIComponent(f.rel));
+    const d = await r.json();
+    if (f !== queue[pos]) return;  // stale response from a fast prev/next
+    if (d.error) { el.textContent = 'model: ' + d.error; return; }
+    const top = d.probs ? Math.max(...Object.values(d.probs)) : null;
+    renderModel(d.level, top, d.probs, f.level);
+  } catch (err) { if (f === queue[pos]) el.textContent = 'model: request failed'; }
+}
+function renderModel(level, conf, probs, savedLevel) {
+  const agree = savedLevel && level === savedLevel;
+  const color = !savedLevel ? '#8a909a' : (agree ? '#4caf50' : '#e0562a');
+  const confTxt = conf == null ? '' : ' (' + (conf * 100).toFixed(0) + '%)';
+  let html = 'model: <span style="color:' + color + '">' + fmtLevel(level) + confTxt + '</span>';
+  if (probs) {
+    html += '<br><span class=muted>' + Object.entries(probs)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => k + ' ' + (v * 100).toFixed(0) + '%').join(' &middot; ') + '</span>';
+  }
+  $('model').innerHTML = html;
 }
 function show() {
   if (pos >= queue.length) return showDone();
   $('imgs').style.display = '';
   const f = queue[pos];
-  const n = LEVELS.indexOf(f.level);
-  const lvlName = !f.level ? '' : (n > 0 ? n + ' \\u2014 ' + f.level : f.level);
+  const lvlName = fmtLevel(f.level);
   $('hdr').innerHTML = '<b>' + f.rel + '</b>' +
     (f.level ? DOT + '<span style="color:#4caf50">' + lvlName + '</span>' : '') +
     (f.skip ? DOT + '<span style="color:#e0a020">watched</span>' : '');
@@ -1047,15 +1112,18 @@ function show() {
   $('crop').removeAttribute('src'); $('frame').removeAttribute('src');
   $('crop').src = '/fullness/crop.jpg?rel=' + encodeURIComponent(f.rel) + '&' + qs();
   $('frame').src = '/fullness/frame.jpg?rel=' + encodeURIComponent(f.rel) + '&' + qs();
+  showModel(f);
 }
 function showDone() {
   $('imgs').style.display = 'none';
+  $('model').innerHTML = '&nbsp;';
   $('hdr').innerHTML = '<b>queue done</b>';
   $('count').innerHTML = '<div class=done>Labeled ' + counts.labeled + ' / ' +
     counts.total + ' box-positive frames.<br>' +
     'Class counts: ' + LEVELS.slice(1).map(
       (l, i) => (i + 1) + '/' + l + ' ' + (counts[l] || 0)).join(' &middot; ') +
     ' &middot; ' + ABSENT + ' ' + (counts[ABSENT] || 0) +
+    ' &middot; ' + UNSURE + ' ' + (counts[UNSURE] || 0) +
     '<br>Next: <code>python -m coffeecam.fullness_dataset</code></div>';
 }
 async function label(level) {
@@ -1090,6 +1158,7 @@ async function skipRest() {
 
 for (let n = 1; n <= 5; n++) $('lvl-' + n).onclick = () => label(LEVELS[n]);
 $('lvl-absent').onclick = () => label(ABSENT);
+$('lvl-unsure').onclick = () => label(UNSURE);
 $('skip').onclick = skipFrame;
 $('del').onclick = delSaved;
 $('prev').onclick = () => { if (pos > 0) { pos--; show(); } };
@@ -1098,11 +1167,14 @@ $('skiprest').onclick = skipRest;
 $('reload').onclick = loadQueue;
 $('filter').onchange = loadQueue;
 $('stride').onchange = loadQueue;
+$('sortconf').onchange = loadQueue;
+$('showmodel').onchange = () => showModel(queue[pos]);
 
 addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
   if (e.key >= '1' && e.key <= '5') label(LEVELS[+e.key]);
   else if (e.key === 'w') label(ABSENT);
+  else if (e.key === 'u') label(UNSURE);
   else if (e.key === 's') skipFrame();
   else if (e.key === 'Backspace') { e.preventDefault(); delSaved(); }
   else if (e.key === 'ArrowLeft') $('prev').onclick();
@@ -1456,7 +1528,7 @@ _PAGE = """<!doctype html><meta charset=utf-8><title>coffeecam pipeline</title>
  <figure><figcaption>4 · crop &rarr; classify</figcaption><img src="/crop.jpg?t={ts}"></figure>
 </div>
 <pre>timings_ms: {timings}
-{jsonlink} · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/history" style="color:#6ab0ff">/history</a> (state timeline) · <a href="/history/long" style="color:#6ab0ff">/history/long</a> (N-day graph) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level) · <a href="/artifacts" style="color:#6ab0ff">/artifacts</a> (scratch gallery)</pre>
+{jsonlink} · <a href="/fullness.json" style="color:#6ab0ff">/fullness.json</a> · <a href="/summary" style="color:#6ab0ff">/summary</a> (annotated capture timelapse) · <a href="/compare" style="color:#6ab0ff">/compare</a> (old vs new detector) · <a href="/viewer" style="color:#6ab0ff">/viewer</a> (scrubbable) · <a href="/history" style="color:#6ab0ff">/history</a> (state timeline) · <a href="/history/long" style="color:#6ab0ff">/history/long</a> (N-day graph) · <a href="/annotate" style="color:#6ab0ff">/annotate</a> (label frames) · <a href="/fullness" style="color:#6ab0ff">/fullness</a> (label fill level) · <a href="/artifacts" style="color:#6ab0ff">/artifacts</a> (scratch gallery)</pre>
 """
 
 
@@ -1859,7 +1931,7 @@ def create_app(start_worker: bool = True) -> Flask:
 
     @app.get("/fullness/queue.json")
     def fullness_queue():
-        frames, counts, _, _ = _fullness_queue()
+        frames, counts, picked, captures_dir = _fullness_queue()
         from coffeecam import fullness_labels
 
         store_counts = fullness_labels.counts(_fullness_store_path())
@@ -1867,7 +1939,62 @@ def create_app(start_worker: bool = True) -> Flask:
         # stay authoritative; fold in only the per-level breakdown.
         for lvl in fullness_labels.LABELS:
             counts[lvl] = store_counts.get(lvl, 0)
+
+        # ?model=1 runs the current classifier over every frame in the picked
+        # set (top-1 level + confidence only, not the full prob vector — keeps
+        # the payload small) so the browser can flag where it's weak. ?sort=
+        # confidence then orders ascending, lowest-confidence first: the frames
+        # most worth annotating next.
+        if _arg_bool("model", False):
+            from PIL import Image as _Image
+
+            from coffeecam.fullness_crop import prepare_crop
+
+            estimator = _get_fullness_estimator()
+            for f, (rel, box, _lvl, _skip) in zip(frames, picked):
+                path = captures_dir / rel
+                if not path.exists():
+                    continue
+                try:
+                    with _Image.open(path) as im:
+                        crop = prepare_crop(im.convert("RGB"), tuple(box))
+                    result = estimator.estimate(crop)
+                except Exception:  # noqa: BLE001 — best-effort, never break the queue
+                    continue
+                probs = result.detail.get("probs") or {}
+                f["model_level"] = result.level
+                f["model_conf"] = max(probs.values()) if probs else None
+
+            if request.args.get("sort") == "confidence":
+                frames.sort(key=lambda f: (f.get("model_conf") is None, f.get("model_conf", 1.0)))
+
         return jsonify({"frames": frames, "counts": counts})
+
+    @app.get("/fullness/suggest.json")
+    def fullness_suggest():
+        # Mirrors /annotate/suggest.json: the classifier's own read of the frame
+        # the human is about to label, so agreement/disagreement is visible
+        # before you commit a label.
+        from PIL import Image as _Image
+
+        from coffeecam import annotations
+        from coffeecam.fullness_crop import prepare_crop
+
+        rel = request.args.get("rel", "")
+        path = _safe_capture_path(rel)
+        if path is None or not path.exists():
+            return jsonify({"error": "frame not found"}), 404
+        ann = annotations.load(_annot_store_path()).get(rel)
+        if ann is None or not ann.boxes:
+            return jsonify({"error": "no box for frame"}), 404
+        estimator = _get_fullness_estimator()
+        with _Image.open(path) as im:
+            crop = prepare_crop(im.convert("RGB"), tuple(ann.boxes[0]))
+        result = estimator.estimate(crop)
+        return jsonify({
+            "level": result.level, "score": result.score, "method": result.method,
+            "probs": result.detail.get("probs"),
+        })
 
     @app.get("/fullness/crop.jpg")
     def fullness_crop():

@@ -1,8 +1,9 @@
 """Pull frames from the break-room coffeecam and save them for the dataset.
 
 The camera is reached over the documented SSH tunnel (homelab-docs
-``runbooks/coffeecam-tunnel.md``): ``http://192.168.50.10:8888/snapshot`` is a
-single JPEG, ``/stream`` is ``multipart/x-mixed-replace`` MJPEG. **The raw frames
+``runbooks/coffeecam-tunnel.md``) at the address in ``hosts.env`` (see
+``hosts.env.example``); ``/snapshot`` is a single JPEG, ``/stream`` is
+``multipart/x-mixed-replace`` MJPEG. **The raw frames
 are upside-down and unmasked** -- the 180 deg rotation and the privacy crop live
 only in the CSS of the viewer page, so this module re-applies them itself before
 anything hits disk (unless ``--raw`` is passed).
@@ -26,6 +27,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -34,7 +36,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-DEFAULT_SOURCE = "http://192.168.50.10:8888"
+from coffeecam import hosts as _hosts  # noqa: F401  (loads hosts.env on import)
+
+DEFAULT_SOURCE = os.environ.get(
+    "COFFEECAM_SOURCE_URL", "http://coffeecam-camera.example:8888"
+)
 # Privacy crop from runbooks/coffeecam-tunnel.md: CSS `inset(top right bottom left)`
 # as fractions of the (already rotated) frame.
 DEFAULT_INSETS = (0.181, 0.434, 0.329, 0.234)

@@ -27,3 +27,6 @@ scratchpad/
 models/best-balanced-v1.pt
 # derived by scratchpad/ds_summary.py
 dataset_summary/
+
+# real homelab hosts/IPs — see hosts.env.example for the committed template
+hosts.env

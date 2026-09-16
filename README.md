@@ -17,10 +17,10 @@ python3 -m venv .venv
 
 ## Capture
 
-Pull frames from the break-room camera (exposed on the homelab LAN at
-`http://192.168.50.10:8888` via the tunnel in homelab-docs
-`runbooks/coffeecam-tunnel.md`). Frames are rotated 180° and privacy-cropped
-before they hit disk.
+Pull frames from the break-room camera (exposed on the homelab LAN via the
+tunnel in homelab-docs `runbooks/coffeecam-tunnel.md`; address configured in
+`hosts.env`, see `hosts.env.example`). Frames are rotated 180° and
+privacy-cropped before they hit disk.
 
 ```bash
 .venv/bin/python -m coffeecam.capture --once                 # one frame now
